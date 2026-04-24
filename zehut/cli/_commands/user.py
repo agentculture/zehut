@@ -1,8 +1,7 @@
-"""``zehut user`` noun group.
+"""``zehut user`` noun group — create, list, show, set, delete, switch, whoami.
 
-Registers the ``user`` parser and its verbs. Each verb lives as a small
-handler function below. More verbs (list/show/set/switch/whoami/delete)
-are added in subsequent tasks.
+switch/whoami are added in Task 14; this file after Task 13 carries the
+five CRUD verbs plus ``create``.
 """
 
 from __future__ import annotations
@@ -13,7 +12,12 @@ from zehut import config as cfg_mod
 from zehut import privilege, users
 from zehut.backend import LogicalBackend, SystemBackend
 from zehut.backend.base import Backend
-from zehut.cli._errors import EXIT_PRIVILEGE, EXIT_STATE, ZehutError
+from zehut.cli._errors import (
+    EXIT_PRIVILEGE,
+    EXIT_STATE,
+    EXIT_USER_ERROR,
+    ZehutError,
+)
 from zehut.cli._output import emit_result
 
 
@@ -22,6 +26,13 @@ def register(subparsers: "argparse._SubParsersAction") -> None:
     sub = p.add_subparsers(dest="verb", required=True)
 
     _register_create(sub)
+    _register_list(sub)
+    _register_show(sub)
+    _register_set(sub)
+    _register_delete(sub)
+
+
+# --- create -------------------------------------------------------------------
 
 
 def _register_create(sub: "argparse._SubParsersAction") -> None:
@@ -78,4 +89,153 @@ def _cmd_create(args: argparse.Namespace) -> int:
         backend=backend,
     )
     emit_result(users.record_to_dict(rec), json_mode=json_mode)
+    return 0
+
+
+# --- list ---------------------------------------------------------------------
+
+
+def _register_list(sub: "argparse._SubParsersAction") -> None:
+    s = sub.add_parser("list", help="List zehut users.")
+    s.set_defaults(func=_cmd_list)
+
+
+def _cmd_list(args: argparse.Namespace) -> int:
+    json_mode = bool(getattr(args, "json", False))
+    recs = users.list_all()
+    if json_mode:
+        emit_result([users.record_to_dict(r) for r in recs], json_mode=True)
+        return 0
+    if not recs:
+        emit_result("(no users)", json_mode=False)
+        return 0
+    lines = [f"{'NAME':<20} {'BACKEND':<10} EMAIL"]
+    for rec in recs:
+        lines.append(f"{rec.name:<20} {rec.backend:<10} {rec.email}")
+    emit_result("\n".join(lines), json_mode=False)
+    return 0
+
+
+# --- show ---------------------------------------------------------------------
+
+
+def _register_show(sub: "argparse._SubParsersAction") -> None:
+    s = sub.add_parser("show", help="Show a user's record.")
+    s.add_argument("name", nargs="?", default=None)
+    s.set_defaults(func=_cmd_show)
+
+
+def _cmd_show(args: argparse.Namespace) -> int:
+    json_mode = bool(getattr(args, "json", False))
+    name = args.name or users.ambient_name()
+    if name is None:
+        raise ZehutError(
+            code=EXIT_USER_ERROR,
+            message="no user name given and no ambient identity",
+            remediation="pass <name> or switch with 'zehut user switch <name>'",
+        )
+    rec = users.get(name)
+    if json_mode:
+        emit_result(users.record_to_dict(rec), json_mode=True)
+    else:
+        d = users.record_to_dict(rec)
+        lines = [f"{k}: {v}" for k, v in d.items()]
+        emit_result("\n".join(lines), json_mode=False)
+    return 0
+
+
+# --- set ----------------------------------------------------------------------
+
+
+def _register_set(sub: "argparse._SubParsersAction") -> None:
+    s = sub.add_parser("set", help="Mutate user metadata (nick, about).")
+    s.add_argument("name", nargs="?", default=None)
+    s.add_argument("assignments", nargs="+", help="key=value (repeatable)")
+    s.set_defaults(func=_cmd_set)
+
+
+def _parse_assignment(token: str) -> tuple[str, str]:
+    if "=" not in token:
+        raise ZehutError(
+            code=EXIT_USER_ERROR,
+            message=f"expected key=value, got {token!r}",
+            remediation="use the form 'nick=Ali'",
+        )
+    key, _, value = token.partition("=")
+    if not key:
+        raise ZehutError(
+            code=EXIT_USER_ERROR,
+            message=f"empty key in assignment {token!r}",
+            remediation="use the form 'nick=Ali'",
+        )
+    return key, value
+
+
+def _cmd_set(args: argparse.Namespace) -> int:
+    json_mode = bool(getattr(args, "json", False))
+    # If the first assignment arg looks like a name (no '='), ``name`` was
+    # consumed by argparse's nargs='?'. Otherwise all tokens are assignments
+    # and name comes from ambient.
+    name = args.name if args.name and "=" not in args.name else None
+    tokens: list[str] = list(args.assignments)
+    if args.name and "=" in args.name:
+        # argparse put a 'key=value' in 'name'; shift it back.
+        tokens.insert(0, args.name)
+        name = None
+    if name is None:
+        name = users.ambient_name()
+    if name is None:
+        raise ZehutError(
+            code=EXIT_USER_ERROR,
+            message="no user name given and no ambient identity",
+            remediation="pass <name> as the first argument",
+        )
+    try:
+        privilege.require_root(action="modify users.json", argv=["user", "set", name, *tokens])
+    except privilege.PrivilegeError as err:
+        raise ZehutError(
+            code=EXIT_PRIVILEGE, message=err.message, remediation=err.remediation
+        ) from err
+
+    fields: dict[str, str] = {}
+    for tok in tokens:
+        k, v = _parse_assignment(tok)
+        fields[k] = v
+    rec = users.update(name, **fields)
+    emit_result(users.record_to_dict(rec), json_mode=json_mode)
+    return 0
+
+
+# --- delete -------------------------------------------------------------------
+
+
+def _register_delete(sub: "argparse._SubParsersAction") -> None:
+    s = sub.add_parser("delete", help="Remove a zehut user.")
+    s.add_argument("name")
+    s.add_argument(
+        "--keep-home",
+        action="store_true",
+        help="Don't pass -r to userdel (system-backed only).",
+    )
+    s.set_defaults(func=_cmd_delete)
+
+
+def _cmd_delete(args: argparse.Namespace) -> int:
+    json_mode = bool(getattr(args, "json", False))
+    rec = users.get(args.name)
+    if rec.backend == "system":
+        try:
+            privilege.require_root(
+                action="delete a system-backed user",
+                argv=["user", "delete", args.name] + (["--keep-home"] if args.keep_home else []),
+            )
+        except privilege.PrivilegeError as err:
+            raise ZehutError(
+                code=EXIT_PRIVILEGE, message=err.message, remediation=err.remediation
+            ) from err
+        backend = SystemBackend()
+    else:
+        backend = LogicalBackend()
+    users.remove(args.name, backend=backend, keep_home=args.keep_home)
+    emit_result({"deleted": args.name, "backend": rec.backend}, json_mode=json_mode)
     return 0
