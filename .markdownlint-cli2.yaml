@@ -11,3 +11,8 @@ ignores:
   - "**/node_modules/**"
   - "dist/**"
   - "build/**"
+  # Internal working documents (design specs + implementation plans). These
+  # carry tight nested task descriptions and code-block scaffolding that do
+  # not need strict MD031/MD032/MD040 compliance. They are not user-facing
+  # documentation.
+  - "docs/superpowers/**"
