@@ -65,7 +65,8 @@ def test_switch_system_execs_sudo(tmp_zehut, monkeypatch, capsys):
         _os.path, "isfile", lambda p: True if p == "/usr/bin/sudo" else real_isfile(p)
     )
     monkeypatch.setattr(
-        _os, "access",
+        _os,
+        "access",
         lambda p, mode: True if p == "/usr/bin/sudo" else real_access(p, mode),
     )
     monkeypatch.setattr("os.execv", fake_execv)
