@@ -88,3 +88,15 @@ def test_create_json_output(tmp_zehut, capsys):
     assert payload["name"] == "alice"
     assert payload["about"] == "qa"
     assert payload["backend"] == "logical"
+
+
+def test_create_system_refuses_foreign_os_user(tmp_zehut, monkeypatch, capsys):
+    """Existing OS user not managed by zehut must NOT be silently adopted."""
+    from zehut.backend import system as system_mod
+
+    # Pretend 'bob' already exists on the OS but not in our registry.
+    monkeypatch.setattr(system_mod.SystemBackend, "exists", lambda self, name: name == "bob")
+    rc = cli.main(["user", "create", "bob", "--system"])
+    cap = capsys.readouterr()
+    assert rc == _errors.EXIT_CONFLICT
+    assert "not zehut-managed" in cap.err or "refusing to adopt" in cap.err

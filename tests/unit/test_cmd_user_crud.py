@@ -114,3 +114,11 @@ def test_delete_system_needs_root(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr("zehut.privilege.os.geteuid", lambda: 1000)
     rc = cli.main(["user", "delete", "bob"])
     assert rc == _errors.EXIT_PRIVILEGE
+
+
+def test_set_ambient_via_env_identity(tmp_zehut_with_alice, monkeypatch, capsys):
+    """`zehut user set nick=X` should resolve ambient via $ZEHUT_IDENTITY."""
+    monkeypatch.setenv("ZEHUT_IDENTITY", "alice")
+    rc = cli.main(["user", "set", "nick=Alicia"])
+    assert rc == 0
+    assert users.get("alice").nick == "Alicia"

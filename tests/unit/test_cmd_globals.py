@@ -62,3 +62,11 @@ def test_explain_known_topic(tmp_zehut, capsys):
 def test_explain_unknown_topic(tmp_zehut, capsys):
     rc = cli.main(["explain", "frobnicate"])
     assert rc == _errors.EXIT_USER_ERROR
+
+
+def test_explain_multiword_topic(tmp_zehut, capsys):
+    rc = cli.main(["explain", "user", "create"])
+    cap = capsys.readouterr()
+    assert rc == 0
+    # _TOPICS["user create"] mentions useradd.
+    assert "useradd" in cap.out.lower()

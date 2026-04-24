@@ -247,6 +247,14 @@ def add(
                 message=f"zehut user {name!r} already exists",
                 remediation="pick a different name or edit with: zehut user set",
             )
+        # Spec §6.2: refuse to adopt foreign OS users. Checked before
+        # backend.provision so we surface EXIT_CONFLICT (not EXIT_BACKEND).
+        if backend_name == "system" and backend.exists(name):
+            raise ZehutError(
+                code=EXIT_CONFLICT,
+                message=(f"OS user {name!r} exists and is not zehut-managed; refusing to adopt"),
+                remediation="pick a different name; v2 will add 'doctor --adopt'",
+            )
         new_id = _generate_ulid()
         base_email = render_email(
             cfg.email_pattern,

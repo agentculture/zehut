@@ -47,18 +47,25 @@ def test_switch_system_execs_sudo(tmp_zehut, monkeypatch, capsys):
         lambda self, *, name: ProvisionResult(system_user=name, system_uid=4001),
     )
     cli.main(["user", "create", "bob", "--system"])
+    capsys.readouterr()  # flush create output
 
     recorded: list[list[str]] = []
 
-    def fake_execvp(prog, argv):
+    def fake_execv(prog, argv):
         recorded.append([prog, *argv[1:]])
         raise SystemExit(0)
 
-    monkeypatch.setattr("os.execvp", fake_execvp)
+    # Force shutil.which to return a predictable path so the assertion
+    # doesn't depend on the test host's sudo location.
+    import shutil as _shutil
+
+    monkeypatch.setattr(_shutil, "which", lambda name: "/usr/bin/sudo" if name == "sudo" else None)
+    monkeypatch.setattr("os.execv", fake_execv)
+
     rc = cli.main(["user", "switch", "bob"])
     # The test harness's main() catches SystemExit and returns the code as int.
     assert rc == 0
-    assert recorded == [["sudo", "-u", "bob", "-i"]]
+    assert recorded == [["/usr/bin/sudo", "-u", "bob", "-i"]]
 
 
 def test_whoami_none_when_no_ambient(tmp_zehut, monkeypatch, capsys):

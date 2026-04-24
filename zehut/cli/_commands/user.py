@@ -264,13 +264,17 @@ def _cmd_switch(args: argparse.Namespace) -> int:
     # System-backed: exec a login shell as the OS user. This replaces the
     # current process on success.
     import os
+    import shutil
 
     target = rec.system_user or rec.name
-    os.execvp("sudo", ["sudo", "-u", target, "-i"])  # noqa: S606,S607
-    # If execvp returns, something broke.
-    raise ZehutError(  # pragma: no cover — execvp only returns on failure
+    sudo_path = shutil.which("sudo") or "/usr/bin/sudo"
+    # sudo itself is trusted; we resolve the absolute path up front so a
+    # hostile PATH cannot redirect the exec to a shadow binary.
+    os.execv(sudo_path, [sudo_path, "-u", target, "-i"])  # noqa: S606
+    # If execv returns, something broke.
+    raise ZehutError(  # pragma: no cover — execv only returns on failure
         code=EXIT_STATE,
-        message="execvp returned unexpectedly",
+        message="execv returned unexpectedly",
         remediation="verify sudo is installed and on PATH",
     )
 

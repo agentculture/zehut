@@ -67,17 +67,22 @@ def _check_file_modes() -> Check:
     for p in (cfg_path, users_path):
         if not p.exists():
             continue
-        mode = p.stat().st_mode & 0o777
+        st = p.stat()
+        mode = st.st_mode & 0o777
         if mode != 0o644:
             problems.append(f"{p} mode={oct(mode)} (expected 0o644)")
+        if st.st_uid != 0:
+            problems.append(f"{p} uid={st.st_uid} (expected 0/root)")
+        if st.st_gid != 0:
+            problems.append(f"{p} gid={st.st_gid} (expected 0/root)")
     if problems:
         return Check(
             "file_modes",
             "WARN",
             "; ".join(problems),
-            "fix with: sudo chmod 644 <path>",
+            "fix with: sudo chmod 644 <path> and sudo chown root:root <path>",
         )
-    return Check("file_modes", "PASS", "0o644", "")
+    return Check("file_modes", "PASS", "0o644 root:root", "")
 
 
 def _check_useradd_on_path() -> Check:

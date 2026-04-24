@@ -55,16 +55,16 @@ _TOPICS: dict[str, str] = {
 
 def register(subparsers: "argparse._SubParsersAction") -> None:
     p = subparsers.add_parser("explain", help="Explain a zehut command or concept.")
-    p.add_argument("topic", help="e.g. 'user create', 'doctor', 'zehut'")
+    p.add_argument("topic", nargs="+", help="e.g. 'user create', 'doctor', 'zehut'")
     p.set_defaults(func=run)
 
 
 def run(args: argparse.Namespace) -> int:
-    key = args.topic.strip()
+    key = " ".join(args.topic).strip()
     if key not in _TOPICS:
         raise ZehutError(
             code=EXIT_USER_ERROR,
-            message=f"no explanation for {args.topic!r}",
+            message=f"no explanation for {key!r}",
             remediation=f"known topics: {', '.join(sorted(_TOPICS))}",
         )
     emit_result(_TOPICS[key], json_mode=False)
