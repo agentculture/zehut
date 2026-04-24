@@ -1,0 +1,10 @@
+[flake8]
+max-line-length = 100
+extend-ignore = E203, W503
+exclude = .git,__pycache__,build,dist,.venv
+per-file-ignores =
+    tests/*:S101
+    tests/test_smoke.py:S101,S404,S603
+    tests/test_self_verify.py:S101,S404,S603
+    tests/unit/test_backend_system.py:S101,S404,S603
+    zehut/backend/system.py:S404,S603

@@ -1,0 +1,79 @@
+[project]
+name = "zehut"
+version = "0.1.0"
+description = "Agents-first identity layer — local system & logical user registry with email assignment."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.12"
+authors = [{name = "Ori Nachum"}]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Programming Language :: Python :: 3.12",
+    "License :: OSI Approved :: MIT License",
+    "Topic :: System :: Systems Administration :: Authentication/Directory",
+    "Intended Audience :: System Administrators",
+]
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/OriNachum/zehut"
+Issues = "https://github.com/OriNachum/zehut/issues"
+
+[project.scripts]
+zehut = "zehut.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["zehut"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-xdist>=3.0",
+    "pytest-cov>=4.1",
+    "bandit>=1.7.5",
+    "pylint>=2.17.0",
+    "flake8>=6.1",
+    "flake8-bandit>=4.1.1",
+    "flake8-bugbear>=23.7.10",
+    "coverage>=7.2.0",
+    "pre-commit>=3.5.0",
+    "isort>=5.12.0",
+    "black>=23.7.0",
+]
+
+[tool.coverage.run]
+source = ["zehut"]
+omit = ["zehut/__pycache__/*"]
+
+[tool.coverage.report]
+fail_under = 70
+show_missing = true
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.",
+    "if TYPE_CHECKING:",
+]
+
+[tool.isort]
+profile = "black"
+line_length = 100
+known_first_party = ["zehut"]
+
+[tool.black]
+line-length = 100
+target-version = ["py312"]
+
+[tool.bandit]
+exclude_dirs = ["tests"]
+skips = ["B101"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+markers = [
+    "integration: tests that shell out to real useradd/userdel (gated on root or ZEHUT_DOCKER=1)",
+]

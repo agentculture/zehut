@@ -1,0 +1,69 @@
+name: tests
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+      - uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39  # v3
+      - run: uv sync
+      - run: uv run black --check zehut tests
+      - run: uv run isort --check-only zehut tests
+      - run: uv run flake8 --config=.flake8 zehut tests
+      - run: uv run bandit -r zehut -c pyproject.toml
+      - run: uv run pylint --errors-only zehut
+      - uses: DavidAnson/markdownlint-cli2-action@b4c9feab76d8025d1e83c653fa3990936df0e6c8  # v16
+        with:
+          globs: '**/*.md'
+
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+      - uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39  # v3
+      - run: uv sync
+      - run: uv run pytest -n auto --cov=zehut --cov-report=term -m "not integration"
+
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+      - name: Build integration image
+        run: docker build -t zehut-int -f .github/workflows/Dockerfile.integration .
+      - name: Run integration tests inside container
+        run: docker run --rm -e ZEHUT_DOCKER=1 zehut-int uv run pytest tests/integration -v -m integration
+
+  version-check:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        with:
+          fetch-depth: 0
+      - name: Compare versions
+        run: |
+          set -euo pipefail
+          head_version=$(grep -E '^version = ' pyproject.toml | head -1 | awk -F'"' '{print $2}')
+          git fetch origin main --depth=1
+          # `git show origin/main:pyproject.toml` fails when main does not yet
+          # have pyproject.toml (first PR to introduce it). Treat that case as
+          # initial release — a bump isn't required.
+          if base_pyproject=$(git show origin/main:pyproject.toml 2>/dev/null); then
+            base_version=$(echo "$base_pyproject" | grep -E '^version = ' | head -1 | awk -F'"' '{print $2}')
+          else
+            base_version=""
+            echo "note: origin/main has no pyproject.toml; treating as initial release."
+          fi
+          echo "base=$base_version head=$head_version"
+          if [ -n "$base_version" ] && [ "$base_version" = "$head_version" ]; then
+            echo "ERROR: version unchanged. Run the version-bump skill." >&2
+            exit 1
+          fi

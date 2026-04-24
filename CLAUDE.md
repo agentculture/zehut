@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-**zehut** — "Agents first secrets manager." A secrets manager whose primary clients are AI agents rather than humans. Repo: https://github.com/OriNachum/zehut
+**zehut** — "Agents first secrets manager." A secrets manager whose primary clients are AI agents rather than humans. Repo: <https://github.com/OriNachum/zehut>.
 
 ## Stack
 
@@ -25,3 +25,43 @@ Greenfield. The repo contains only `README.md`, `LICENSE` (MIT), and a Python `.
 
 - **Branch + PR** for all changes by default. Direct pushes to `main` only with explicit per-change authorization.
 - Follow the workspace defaults from `/home/spark/git/CLAUDE.md`: `uv` for deps, per-project version bump before PR.
+
+## Implementation status (post-v1)
+
+Implemented surface lives in `zehut/`:
+
+- CLI entry: `zehut/cli/__init__.py` (argparse, dispatch, `--json`, error routing).
+- Commands: `zehut/cli/_commands/{init,configuration,user,doctor,learn,overview,explain}.py`.
+- Core modules: `zehut/{fs,config,privilege,users}.py`.
+- Backends: `zehut/backend/{base,logical,system}.py`.
+
+State on disk:
+
+- `/etc/zehut/config.toml` (root-owned, 0o644).
+- `/var/lib/zehut/users.json` (root-owned, 0o644) — stable API consumed
+  by a separate (forthcoming) secrets CLI.
+
+Test-only env hooks (see `docs/testing.md`): `ZEHUT_CONFIG_DIR`,
+`ZEHUT_STATE_DIR`, `ZEHUT_ASSUME_ROOT`, `ZEHUT_DOCKER`.
+
+## Version bumps
+
+Every PR MUST bump the version. Run:
+
+```bash
+python3 .claude/skills/version-bump/scripts/bump.py {patch|minor|major}
+```
+
+Patch for docs/config/CI; minor for new commands or verbs; major for
+breaking changes (schema_version bump, removed verbs, exit-code
+reshuffle). The `version-check` job in `tests.yml` enforces this on PR.
+
+## Reference
+
+- Design spec: `docs/superpowers/specs/2026-04-24-zehut-cli-design.md`.
+- Implementation plan: `docs/superpowers/plans/2026-04-24-zehut-cli-v1.md`.
+- Threat model: `docs/threat-model.md`.
+- Identity model: `docs/identity-model.md`.
+- Testing notes: `docs/testing.md`.
+- Patterned on: `../afi-cli` (same CI, error-routing, and versioning
+  conventions).
