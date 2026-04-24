@@ -33,7 +33,7 @@ Implemented surface lives in `zehut/`:
 - CLI entry: `zehut/cli/__init__.py` (argparse, dispatch, `--json`, error routing).
 - Commands: `zehut/cli/_commands/{init,configuration,user,doctor,learn,overview,explain}.py`.
 - Core modules: `zehut/{fs,config,privilege,users}.py`.
-- Backends: `zehut/backend/{base,logical,system}.py`.
+- Backends: `zehut/backend/{base,subuser,system}.py`.
 
 State on disk:
 
@@ -59,6 +59,7 @@ reshuffle). The `version-check` job in `tests.yml` enforces this on PR.
 ## Reference
 
 - Design spec: `docs/superpowers/specs/2026-04-24-zehut-cli-design.md`.
+- Sub-user addendum: `docs/superpowers/specs/2026-04-24-zehut-subusers.md` (v1 → v2 schema change).
 - Implementation plan: `docs/superpowers/plans/2026-04-24-zehut-cli-v1.md`.
 - Threat model: `docs/threat-model.md`.
 - Identity model: `docs/identity-model.md`.

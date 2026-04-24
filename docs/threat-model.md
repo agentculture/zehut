@@ -1,4 +1,4 @@
-# zehut threat model (v1)
+# zehut threat model
 
 ## Trust boundary
 
@@ -7,13 +7,16 @@ who can become root can do everything zehut can do anyway. zehut's job is
 to be a well-behaved privileged caller — not to enforce authorisation
 above the OS layer.
 
-## Adversary model (v1)
+## Adversary model
 
 Single-admin trusted host. Non-root local users MUST NOT be able to:
 
 1. Escalate privileges via a zehut invocation.
 2. Tamper with `/var/lib/zehut/users.json` or `/etc/zehut/config.toml`.
 3. Impersonate another zehut user through ambient resolution.
+4. Use a sub-user identity to access resources scoped to its parent
+   beyond what the parent has explicitly delegated (enforced by the
+   downstream secrets CLI; zehut records the relationship).
 
 Multi-tenant hosts, network services, and cloud identity backends are
 out of scope for v1.
@@ -57,7 +60,20 @@ out of scope for v1.
   well-formedness.
 - Documented here so operators understand the boundary.
 
-### 5. Unprotected state during `init`
+### 5. Sub-user escalation to parent
+
+- A compromised sub-user (leaked `$ZEHUT_IDENTITY`) must not yield any
+  capability the parent itself would not have. zehut does not grant
+  capabilities — it records identity — but the integrity of the
+  relationship depends on `parent_id` being authoritative and immutable
+  post-create.
+- `parent_id` is not in `_MUTABLE_KEYS`; `zehut user set` refuses to
+  touch it. `users.json` tampering is a registry-file concern (§3).
+- Cascade delete is atomic with the parent's removal: the registry
+  write is the revocation. Downstream issuers must therefore not cache
+  sub-user-to-parent mappings across the lock boundary.
+
+### 6. Unprotected state during `init`
 
 - `init` creates `config.toml` and `users.json` via
   `fs.atomic_write_text(..., mode=0o644)`, which uses `mkstemp` with

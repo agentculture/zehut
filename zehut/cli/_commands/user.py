@@ -10,7 +10,7 @@ import argparse
 
 from zehut import config as cfg_mod
 from zehut import privilege, users
-from zehut.backend import LogicalBackend, SystemBackend
+from zehut.backend import SubUserBackend, SystemBackend
 from zehut.backend.base import Backend
 from zehut.cli._errors import (
     EXIT_PRIVILEGE,
@@ -42,7 +42,12 @@ def _register_create(sub: "argparse._SubParsersAction") -> None:
     s.add_argument("name")
     bg = s.add_mutually_exclusive_group()
     bg.add_argument("--system", dest="backend_choice", action="store_const", const="system")
-    bg.add_argument("--logical", dest="backend_choice", action="store_const", const="logical")
+    bg.add_argument("--subuser", dest="backend_choice", action="store_const", const="subuser")
+    s.add_argument(
+        "--parent",
+        default=None,
+        help="Parent user name (required with --subuser; parent must be system-backed).",
+    )
     s.add_argument("--nick", default=None)
     s.add_argument("--about", default=None)
     s.set_defaults(func=_cmd_create)
@@ -60,12 +65,12 @@ def _resolve_backend(choice: str | None) -> tuple[str, Backend]:
     backend_name = choice or cfg.default_backend
     if backend_name == "system":
         return "system", SystemBackend()
-    if backend_name == "logical":
-        return "logical", LogicalBackend()
+    if backend_name == "subuser":
+        return "subuser", SubUserBackend()
     raise ZehutError(
         code=EXIT_STATE,
         message=f"invalid backend {backend_name!r}",
-        remediation="configuration.default_backend must be 'system' or 'logical'",
+        remediation="configuration.default_backend must be 'system' or 'subuser'",
     )
 
 
@@ -89,6 +94,7 @@ def _cmd_create(args: argparse.Namespace) -> int:
         about=args.about,
         backend_name=backend_name,
         backend=backend,
+        parent_name=args.parent,
     )
     emit_result(users.record_to_dict(rec), json_mode=json_mode)
     return 0
@@ -112,9 +118,11 @@ def _cmd_list(args: argparse.Namespace) -> None:
     if not recs:
         emit_result("(no users)", json_mode=False)
         return
-    lines = [f"{'NAME':<20} {'BACKEND':<10} EMAIL"]
+    by_id = {r.id: r.name for r in recs}
+    lines = [f"{'NAME':<20} {'BACKEND':<10} {'PARENT':<20} EMAIL"]
     for rec in recs:
-        lines.append(f"{rec.name:<20} {rec.backend:<10} {rec.email}")
+        parent = by_id.get(rec.parent_id or "", "-")
+        lines.append(f"{rec.name:<20} {rec.backend:<10} {parent:<20} {rec.email}")
     emit_result("\n".join(lines), json_mode=False)
 
 
@@ -237,9 +245,12 @@ def _cmd_delete(args: argparse.Namespace) -> int:
             ) from err
         backend = SystemBackend()
     else:
-        backend = LogicalBackend()
-    users.remove(args.name, backend=backend, keep_home=args.keep_home)
-    emit_result({"deleted": args.name, "backend": rec.backend}, json_mode=json_mode)
+        backend = SubUserBackend()
+    cascaded = users.remove(args.name, backend=backend, keep_home=args.keep_home)
+    emit_result(
+        {"deleted": args.name, "backend": rec.backend, "cascaded_subusers": cascaded},
+        json_mode=json_mode,
+    )
     return 0
 
 
@@ -249,7 +260,7 @@ def _cmd_delete(args: argparse.Namespace) -> int:
 def _register_switch(sub: "argparse._SubParsersAction") -> None:
     s = sub.add_parser(
         "switch",
-        help="Switch identity: execs `sudo -u` for system; prints export for logical.",
+        help="Switch identity: execs `sudo -u` for system; prints export for sub-users.",
     )
     s.add_argument("name")
     s.set_defaults(func=_cmd_switch)
@@ -257,7 +268,7 @@ def _register_switch(sub: "argparse._SubParsersAction") -> None:
 
 def _cmd_switch(args: argparse.Namespace) -> int:
     rec = users.get(args.name)
-    if rec.backend == "logical":
+    if rec.backend == "subuser":
         # Print an export line for ``eval $(zehut user switch <name>)``.
         emit_result(f"export ZEHUT_IDENTITY={rec.name}", json_mode=False)
         return 0

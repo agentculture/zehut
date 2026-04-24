@@ -34,21 +34,21 @@ def test_init_non_interactive_writes_both_files(tmp_zehut, capsys):
 
 def test_init_refuses_when_not_root(tmp_zehut, monkeypatch, capsys):
     monkeypatch.setattr("zehut.privilege.os.geteuid", lambda: 1000)
-    rc = cli.main(["init", "--domain", "x.com", "--default-backend", "logical"])
+    rc = cli.main(["init", "--domain", "x.com", "--default-backend", "subuser"])
     cap = capsys.readouterr()
     assert rc == _errors.EXIT_PRIVILEGE
     assert "sudo" in cap.err
 
 
 def test_init_is_idempotent_without_force(tmp_zehut, capsys):
-    cli.main(["init", "--domain", "x.com", "--default-backend", "logical"])
+    cli.main(["init", "--domain", "x.com", "--default-backend", "subuser"])
     rc = cli.main(["init", "--domain", "ignored.com", "--default-backend", "system"])
     assert rc == 0
     assert config.load().domain == "x.com"  # unchanged
 
 
 def test_init_force_overwrites(tmp_zehut, capsys):
-    cli.main(["init", "--domain", "x.com", "--default-backend", "logical"])
+    cli.main(["init", "--domain", "x.com", "--default-backend", "subuser"])
     rc = cli.main(
         [
             "init",

@@ -28,7 +28,7 @@ def test_default_config_values():
 
 
 def test_save_and_load_roundtrip(tmp_zehut):
-    cfg = config.Config.default(domain="x.example.com", backend="logical")
+    cfg = config.Config.default(domain="x.example.com", backend="subuser")
     config.save(cfg)
     loaded = config.load()
     assert loaded == cfg

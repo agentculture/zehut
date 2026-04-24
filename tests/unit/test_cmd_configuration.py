@@ -19,7 +19,7 @@ def tmp_zehut(tmp_path, monkeypatch):
     config_dir.mkdir()
     state_dir.mkdir()
     monkeypatch.setattr("zehut.privilege.os.geteuid", lambda: 0)
-    cli.main(["init", "--domain", "old.example.com", "--default-backend", "logical"])
+    cli.main(["init", "--domain", "old.example.com", "--default-backend", "subuser"])
     return config_dir, state_dir
 
 

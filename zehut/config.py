@@ -17,11 +17,11 @@ from typing import Literal, cast
 
 from zehut import fs
 
-Backend = Literal["system", "logical"]
+Backend = Literal["system", "subuser"]
 CollisionMode = Literal["suffix"]
 
 _SCHEMA_VERSION = 1
-_VALID_BACKENDS: tuple[Backend, ...] = ("system", "logical")
+_VALID_BACKENDS: tuple[Backend, ...] = ("system", "subuser")
 _VALID_COLLISION: tuple[CollisionMode, ...] = ("suffix",)
 _SETTABLE_KEYS = frozenset({"domain", "default_backend", "email_pattern", "email_collision"})
 

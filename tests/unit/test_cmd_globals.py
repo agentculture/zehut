@@ -11,17 +11,11 @@ from zehut.cli import _errors
 
 
 @pytest.fixture
-def tmp_zehut(tmp_path, monkeypatch):
-    config_dir = tmp_path / "etc-zehut"
-    state_dir = tmp_path / "var-lib-zehut"
-    monkeypatch.setenv("ZEHUT_CONFIG_DIR", str(config_dir))
-    monkeypatch.setenv("ZEHUT_STATE_DIR", str(state_dir))
-    config_dir.mkdir()
-    state_dir.mkdir()
-    monkeypatch.setattr("zehut.privilege.os.geteuid", lambda: 0)
-    cli.main(["init", "--domain", "agents.example.com", "--default-backend", "logical"])
-    cli.main(["user", "create", "alice", "--nick", "Ali"])
-    return config_dir, state_dir
+def tmp_zehut(tmp_zehut_root, stub_system_backend):
+    cli.main(["init", "--domain", "agents.example.com", "--default-backend", "subuser"])
+    cli.main(["user", "create", "agent", "--system"])
+    cli.main(["user", "create", "alice", "--subuser", "--parent", "agent", "--nick", "Ali"])
+    return tmp_zehut_root
 
 
 def test_learn_emits_markdown_with_frontmatter(tmp_zehut, capsys):
@@ -41,7 +35,7 @@ def test_overview_json_shape(tmp_zehut, capsys):
     assert "config" in payload
     assert "users" in payload
     assert payload["config"]["domain"] == "agents.example.com"
-    assert payload["users"][0]["name"] == "alice"
+    assert {u["name"] for u in payload["users"]} == {"agent", "alice"}
 
 
 def test_overview_text(tmp_zehut, capsys):

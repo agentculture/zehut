@@ -11,20 +11,19 @@ from zehut.cli import _errors
 
 
 @pytest.fixture
-def tmp_zehut(tmp_path, monkeypatch):
-    config_dir = tmp_path / "etc-zehut"
-    state_dir = tmp_path / "var-lib-zehut"
-    monkeypatch.setenv("ZEHUT_CONFIG_DIR", str(config_dir))
-    monkeypatch.setenv("ZEHUT_STATE_DIR", str(state_dir))
-    config_dir.mkdir()
-    state_dir.mkdir()
-    monkeypatch.setattr("zehut.privilege.os.geteuid", lambda: 0)
-    cli.main(["init", "--domain", "agents.example.com", "--default-backend", "logical"])
-    return config_dir, state_dir
+def tmp_zehut(tmp_zehut_root, stub_system_backend):
+    cli.main(["init", "--domain", "agents.example.com", "--default-backend", "system"])
+    # Seed a parent that sub-user tests can hang off.
+    cli.main(["user", "create", "agent", "--system"])
+    return tmp_zehut_root
 
 
-def test_switch_logical_prints_export(tmp_zehut, capsys):
-    cli.main(["user", "create", "alice"])
+def _make_subuser(name: str, parent: str = "agent") -> None:
+    assert cli.main(["user", "create", name, "--subuser", "--parent", parent]) == 0
+
+
+def test_switch_subuser_prints_export(tmp_zehut, capsys):
+    _make_subuser("alice")
     capsys.readouterr()  # flush create output
     rc = cli.main(["user", "switch", "alice"])
     cap = capsys.readouterr()
@@ -38,17 +37,6 @@ def test_switch_unknown_user(tmp_zehut, capsys):
 
 
 def test_switch_system_execs_sudo(tmp_zehut, monkeypatch, capsys):
-    from zehut.backend import system as system_mod
-    from zehut.backend.base import ProvisionResult
-
-    monkeypatch.setattr(
-        system_mod.SystemBackend,
-        "provision",
-        lambda self, *, name: ProvisionResult(system_user=name, system_uid=4001),
-    )
-    cli.main(["user", "create", "bob", "--system"])
-    capsys.readouterr()  # flush create output
-
     recorded: list[list[str]] = []
 
     def fake_execv(prog, argv):
@@ -75,19 +63,28 @@ def test_switch_system_execs_sudo(tmp_zehut, monkeypatch, capsys):
     # os.execv in production replaces the process and never returns, so the
     # test's SystemExit-raising mock accurately represents that contract.
     with pytest.raises(SystemExit) as excinfo:
-        cli.main(["user", "switch", "bob"])
+        # Switch to the seeded 'agent' system user.
+        cli.main(["user", "switch", "agent"])
     assert excinfo.value.code == 0
-    assert recorded == [["/usr/bin/sudo", "-u", "bob", "-i"]]
+    assert recorded == [["/usr/bin/sudo", "-u", "agent", "-i"]]
 
 
 def test_whoami_none_when_no_ambient(tmp_zehut, monkeypatch, capsys):
     monkeypatch.delenv("ZEHUT_IDENTITY", raising=False)
+    # The seeded 'agent' would resolve ambient via getpwuid if the test
+    # happens to run as a user literally named 'agent'. Guard by patching.
+    import types
+
+    monkeypatch.setattr(
+        "zehut.users.pwd.getpwuid",
+        lambda uid: types.SimpleNamespace(pw_name="nobody", pw_uid=65534),
+    )
     rc = cli.main(["user", "whoami"])
     assert rc == _errors.EXIT_USER_ERROR
 
 
 def test_whoami_env_fallback(tmp_zehut, monkeypatch, capsys):
-    cli.main(["user", "create", "alice"])
+    _make_subuser("alice")
     monkeypatch.setenv("ZEHUT_IDENTITY", "alice")
     rc = cli.main(["user", "whoami"])
     cap = capsys.readouterr()
@@ -96,7 +93,7 @@ def test_whoami_env_fallback(tmp_zehut, monkeypatch, capsys):
 
 
 def test_whoami_json(tmp_zehut, monkeypatch, capsys):
-    cli.main(["user", "create", "alice"])
+    _make_subuser("alice")
     monkeypatch.setenv("ZEHUT_IDENTITY", "alice")
     assert cli.main(["--json", "user", "whoami"]) == 0
     cap = capsys.readouterr()
@@ -105,7 +102,7 @@ def test_whoami_json(tmp_zehut, monkeypatch, capsys):
 
 
 def test_current_is_an_alias_for_whoami(tmp_zehut, monkeypatch, capsys):
-    cli.main(["user", "create", "alice"])
+    _make_subuser("alice")
     monkeypatch.setenv("ZEHUT_IDENTITY", "alice")
     rc = cli.main(["user", "current"])
     cap = capsys.readouterr()

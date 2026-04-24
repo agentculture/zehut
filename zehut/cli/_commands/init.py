@@ -22,7 +22,7 @@ def register(subparsers: "argparse._SubParsersAction") -> None:
     p.add_argument(
         "--default-backend",
         required=True,
-        choices=("system", "logical"),
+        choices=("system", "subuser"),
         help="Default backend for 'zehut user create'.",
     )
     p.add_argument(

@@ -33,7 +33,7 @@ def test_doctor_fails_when_uninitialised(tmp_zehut, capsys):
 
 
 def test_doctor_all_pass_after_init(tmp_zehut, capsys):
-    cli.main(["init", "--domain", "agents.example.com", "--default-backend", "logical"])
+    cli.main(["init", "--domain", "agents.example.com", "--default-backend", "subuser"])
     rc = cli.main(["--json", "doctor"])
     cap = capsys.readouterr()
     payload = json.loads(cap.out.splitlines()[-1])
@@ -43,7 +43,7 @@ def test_doctor_all_pass_after_init(tmp_zehut, capsys):
 
 
 def test_doctor_reports_drift_when_system_entry_has_unknown_uid(tmp_zehut, monkeypatch, capsys):
-    cli.main(["init", "--domain", "agents.example.com", "--default-backend", "logical"])
+    cli.main(["init", "--domain", "agents.example.com", "--default-backend", "subuser"])
     from zehut.backend import system as system_mod
     from zehut.backend.base import ProvisionResult
 

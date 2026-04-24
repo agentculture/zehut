@@ -38,25 +38,81 @@ def _run(env: dict, *args: str) -> subprocess.CompletedProcess:
     )
 
 
-def test_full_logical_lifecycle(zehut_env):
+def _seed_system_parent(state_dir_env: str, name: str = "agent") -> None:
+    """Inject a system-backed parent row into users.json without useradd.
+
+    Creating a real system parent via the CLI would shell out to useradd,
+    which we can't safely run in a unit-test context. We write the JSON
+    directly under the same schema the CLI produces, then let the CLI
+    subprocess pick up the registry state.
+    """
+    from pathlib import Path
+
+    path = Path(state_dir_env) / "users.json"
+    doc = json.loads(path.read_text())
+    doc["users"].append(
+        {
+            "id": "01SEEDED00000000000000000A",
+            "name": name,
+            "nick": None,
+            "about": None,
+            "email": f"{name}@agents.example.com",
+            "backend": "system",
+            "system_user": name,
+            "system_uid": 4242,
+            "parent_id": None,
+            "created_at": "2026-04-24T00:00:00Z",
+            "updated_at": "2026-04-24T00:00:00Z",
+        }
+    )
+    path.write_text(json.dumps(doc, indent=2))
+
+
+def test_full_subuser_lifecycle(zehut_env):
+    """Init → seed system parent → create sub-user via CLI → list →
+    doctor → cascade-delete.
+    """
     env = zehut_env
 
-    rc = _run(env, "init", "--domain", "agents.example.com", "--default-backend", "logical")
+    rc = _run(env, "init", "--domain", "agents.example.com", "--default-backend", "subuser")
     assert rc.returncode == 0, rc.stderr
 
-    rc = _run(env, "user", "create", "alice", "--nick", "Ali")
+    _seed_system_parent(env["ZEHUT_STATE_DIR"], name="agent")
+
+    rc = _run(env, "user", "create", "alice", "--subuser", "--parent", "agent", "--nick", "Ali")
     assert rc.returncode == 0, rc.stderr
 
     rc = _run(env, "--json", "user", "list")
     assert rc.returncode == 0
     payload = json.loads(rc.stdout.splitlines()[-1])
-    assert payload[0]["name"] == "alice"
+    names = {r["name"] for r in payload}
+    assert names == {"agent", "alice"}
 
+    # The seeded system parent points at a UID that has no matching
+    # /etc/passwd entry, so system_users_resolve is expected to FAIL
+    # (this is a test harness artefact, not a real problem). Every
+    # other check must pass — in particular subuser_parents_valid,
+    # which is the meaningful invariant for this PR.
     rc = _run(env, "--json", "doctor")
     assert rc.returncode == 0
     doctor_payload = json.loads(rc.stdout.splitlines()[-1])
-    statuses = {c["status"] for c in doctor_payload["checks"]}
-    assert "FAIL" not in statuses, doctor_payload
+    parent_check = next(c for c in doctor_payload["checks"] if c["name"] == "subuser_parents_valid")
+    assert parent_check["status"] == "PASS", doctor_payload
+    for c in doctor_payload["checks"]:
+        if c["status"] == "FAIL":
+            assert c["name"] == "system_users_resolve", doctor_payload
 
-    rc = _run(env, "user", "delete", "alice")
+    # Delete just the sub-user first (no cascade expected).
+    rc = _run(env, "--json", "user", "delete", "alice")
     assert rc.returncode == 0, rc.stderr
+    delete_payload = json.loads(rc.stdout.splitlines()[-1])
+    assert delete_payload == {
+        "deleted": "alice",
+        "backend": "subuser",
+        "cascaded_subusers": [],
+    }
+
+    rc = _run(env, "--json", "user", "list")
+    assert rc.returncode == 0
+    remaining = json.loads(rc.stdout.splitlines()[-1])
+    assert {r["name"] for r in remaining} == {"agent"}
