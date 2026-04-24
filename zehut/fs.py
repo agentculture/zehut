@@ -94,11 +94,26 @@ def read_json(target: Path) -> Any:
 
 
 @contextmanager
-def _locked(path: Path, op: int) -> Iterator[None]:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    # Open O_RDWR so both LOCK_SH and LOCK_EX work on the same fd.
-    flags = os.O_RDWR | os.O_CREAT
-    fd = os.open(str(path), flags, 0o644)
+def _locked(path: Path, op: int, *, create: bool) -> Iterator[None]:
+    """Flock context — open mode depends on whether we need write access.
+
+    Exclusive writers pass ``create=True`` so the lock file is auto-created
+    (the writer is root and allowed to). Shared readers pass ``create=False``
+    and open ``O_RDONLY`` so non-root readers can take a read lock on a
+    root-owned, 0o644 lock file — `LOCK_SH` does not require the fd to be
+    writable.
+    """
+    if create:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        flags = os.O_RDWR | os.O_CREAT
+        fd = os.open(str(path), flags, 0o644)
+    else:
+        # Read path: do NOT mkdir, do NOT create. If the lock file is absent
+        # the registry hasn't been initialised — let the caller's load raise
+        # a proper ZehutError(EXIT_STATE) from FileNotFoundError instead of
+        # us papering over it by creating state directories we can't own.
+        flags = os.O_RDONLY
+        fd = os.open(str(path), flags)
     try:
         fcntl.flock(fd, op)
         try:
@@ -115,13 +130,23 @@ def _locked(path: Path, op: int) -> Iterator[None]:
 
 @contextmanager
 def exclusive_lock(path: Path) -> Iterator[None]:
-    """Hold ``LOCK_EX`` on ``path`` for the duration of the context."""
-    with _locked(path, fcntl.LOCK_EX):
+    """Hold ``LOCK_EX`` on ``path`` for the duration of the context.
+
+    Creates the lock file (and its parent) if missing. Intended for root-run
+    mutating paths; non-root callers will hit EACCES on `/var/lib/zehut`.
+    """
+    with _locked(path, fcntl.LOCK_EX, create=True):
         yield
 
 
 @contextmanager
 def shared_lock(path: Path) -> Iterator[None]:
-    """Hold ``LOCK_SH`` on ``path`` for the duration of the context."""
-    with _locked(path, fcntl.LOCK_SH):
+    """Hold ``LOCK_SH`` on ``path`` for the duration of the context.
+
+    Read-only: opens the lock file ``O_RDONLY`` and does not create state
+    directories. Safe for non-root readers against a root-owned lock file
+    (0o644). Raises ``FileNotFoundError`` if the lock file doesn't exist —
+    callers should translate that into a meaningful EXIT_STATE error.
+    """
+    with _locked(path, fcntl.LOCK_SH, create=False):
         yield

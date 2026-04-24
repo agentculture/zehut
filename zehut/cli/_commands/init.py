@@ -12,7 +12,7 @@ from __future__ import annotations
 import argparse
 
 from zehut import config, fs, privilege, users
-from zehut.cli._errors import EXIT_CONFLICT, EXIT_PRIVILEGE, ZehutError
+from zehut.cli._errors import EXIT_CONFLICT, EXIT_PRIVILEGE, EXIT_STATE, ZehutError
 from zehut.cli._output import emit_diagnostic, emit_result
 
 
@@ -49,7 +49,16 @@ def run(args: argparse.Namespace) -> int:
     already = cfg_path.exists()
     if already and not args.force:
         emit_diagnostic(f"zehut already initialised at {cfg_path}", json_mode=json_mode)
-        existing = config.load()
+        try:
+            existing = config.load()
+        except config.ConfigStateError as err:
+            # Corrupt/unreadable config in the idempotent branch should
+            # surface as EXIT_STATE with a clear hint, not EXIT_INTERNAL.
+            raise ZehutError(
+                code=EXIT_STATE,
+                message=str(err),
+                remediation="fix the TOML or re-run with: sudo zehut init --force ...",
+            ) from err
         users.init_registry()  # ensure users.json exists even after partial prior init
         emit_result(
             {

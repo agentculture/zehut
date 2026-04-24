@@ -11,6 +11,7 @@ not on root's ``secure_path`` under typical sudoers configs.
 from __future__ import annotations
 
 import os
+import shlex
 import shutil
 import sys
 from dataclasses import dataclass
@@ -46,8 +47,11 @@ def _zehut_binary() -> str | None:
 
 
 def sudo_command(argv: list[str]) -> str:
+    # shlex.join quotes any element containing whitespace or shell
+    # metacharacters so the printed remediation is safe to paste verbatim
+    # (e.g. --about "QA agent" survives the round-trip).
     binary = _zehut_binary() or "zehut"
-    return " ".join(["sudo", binary, *argv])
+    return shlex.join(["sudo", binary, *argv])
 
 
 def require_root(*, action: str, argv: list[str] | None = None) -> None:

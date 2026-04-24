@@ -136,11 +136,19 @@ def _empty_registry() -> dict[str, Any]:
 
 
 def init_registry() -> None:
-    """Create an empty registry file if it doesn't already exist."""
+    """Create the empty registry file and the lock file if missing.
+
+    The lock file must exist after init so non-root readers can open it
+    ``O_RDONLY`` and take ``LOCK_SH`` without needing to create it (0o644
+    root-owned) — see spec §5.4 and fs.shared_lock docstring.
+    """
     path = fs.users_file()
-    if path.exists():
-        return
-    fs.atomic_write_text(path, json.dumps(_empty_registry(), indent=2), mode=0o644)
+    lock_path = fs.lock_file()
+    if not path.exists():
+        fs.atomic_write_text(path, json.dumps(_empty_registry(), indent=2), mode=0o644)
+    if not lock_path.exists():
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        lock_path.touch(mode=0o644)
 
 
 def _load_raw_unlocked() -> dict[str, Any]:
@@ -166,8 +174,18 @@ def _load_raw_unlocked() -> dict[str, Any]:
 
 
 def _load_raw() -> dict[str, Any]:
-    with fs.shared_lock(fs.lock_file()):
-        return _load_raw_unlocked()
+    # shared_lock opens the lock file O_RDONLY without creating it. If it is
+    # missing, state hasn't been initialised — translate to EXIT_STATE so the
+    # caller sees a clean "run: sudo zehut init" hint.
+    try:
+        with fs.shared_lock(fs.lock_file()):
+            return _load_raw_unlocked()
+    except FileNotFoundError as err:
+        raise ZehutError(
+            code=EXIT_STATE,
+            message=f"zehut state not initialised: {err.filename or fs.lock_file()} missing",
+            remediation="run: sudo zehut init",
+        ) from err
 
 
 def _save_raw(doc: dict[str, Any]) -> None:
@@ -353,7 +371,10 @@ def ambient_name() -> str | None:
     records = list_all()
     if os_name:
         for rec in records:
-            if rec.backend == "system" and rec.system_user == os_name:
+            # Fall back to rec.name if system_user isn't populated (older
+            # records or manual edits) — matches how _cmd_switch and doctor
+            # treat system_user as optional.
+            if rec.backend == "system" and (rec.system_user or rec.name) == os_name:
                 return rec.name
     if env_name:
         for rec in records:

@@ -51,17 +51,47 @@ class Config:
         )
 
 
+_TOML_ESCAPES = {
+    "\\": "\\\\",
+    '"': '\\"',
+    "\n": "\\n",
+    "\r": "\\r",
+    "\t": "\\t",
+    "\b": "\\b",
+    "\f": "\\f",
+}
+
+
+def _toml_str(value: str) -> str:
+    """Escape ``value`` for emission as a TOML basic string (double-quoted).
+
+    TOML basic strings must escape backslash, double quote, and control
+    characters. Without this, a domain or pattern containing ``"`` or ``\\``
+    would produce invalid TOML and break the next ``load()``.
+    """
+    escaped = value
+    for ch, sub in _TOML_ESCAPES.items():
+        escaped = escaped.replace(ch, sub)
+    # Reject any remaining raw control characters (U+0000..U+001F minus the
+    # ones handled above, plus U+007F). They're technically escapable as
+    # \uXXXX but we have no use case and rejecting is safer.
+    for ch in escaped:
+        if ord(ch) < 0x20 or ord(ch) == 0x7F:
+            raise ConfigStateError(f"value contains unsupported control character U+{ord(ch):04X}")
+    return f'"{escaped}"'
+
+
 def _serialise(cfg: Config) -> str:
     return (
         f"schema_version = {cfg.schema_version}\n"
         "\n"
         "[defaults]\n"
-        f'backend = "{cfg.default_backend}"\n'
+        f"backend = {_toml_str(cfg.default_backend)}\n"
         "\n"
         "[email]\n"
-        f'domain = "{cfg.domain}"\n'
-        f'pattern = "{cfg.email_pattern}"\n'
-        f'collision = "{cfg.email_collision}"\n'
+        f"domain = {_toml_str(cfg.domain)}\n"
+        f"pattern = {_toml_str(cfg.email_pattern)}\n"
+        f"collision = {_toml_str(cfg.email_collision)}\n"
     )
 
 

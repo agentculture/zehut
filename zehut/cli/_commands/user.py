@@ -270,9 +270,18 @@ def _cmd_switch(args: argparse.Namespace) -> int:
     sudo_path = shutil.which("sudo") or "/usr/bin/sudo"
     # sudo itself is trusted; we resolve the absolute path up front so a
     # hostile PATH cannot redirect the exec to a shadow binary.
-    os.execv(sudo_path, [sudo_path, "-u", target, "-i"])  # noqa: S606 # nosec B606
-    # If execv returns, something broke.
-    raise ZehutError(  # pragma: no cover — execv only returns on failure
+    try:
+        os.execv(sudo_path, [sudo_path, "-u", target, "-i"])  # noqa: S606 # nosec B606
+    except OSError as err:
+        # sudo missing / not executable / not installed.
+        raise ZehutError(
+            code=EXIT_STATE,
+            message=f"cannot exec sudo ({sudo_path}): {err}",
+            remediation="install sudo (e.g. apt install sudo) and re-run",
+        ) from err
+    # execv only returns on failure; if we get here without OSError, surface
+    # a generic internal error rather than pretending success.
+    raise ZehutError(  # pragma: no cover — belt-and-suspenders
         code=EXIT_STATE,
         message="execv returned unexpectedly",
         remediation="verify sudo is installed and on PATH",
