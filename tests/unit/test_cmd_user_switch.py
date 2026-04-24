@@ -55,11 +55,19 @@ def test_switch_system_execs_sudo(tmp_zehut, monkeypatch, capsys):
         recorded.append([prog, *argv[1:]])
         raise SystemExit(0)
 
-    # Force shutil.which to return a predictable path so the assertion
-    # doesn't depend on the test host's sudo location.
-    import shutil as _shutil
+    # The command now uses a hardcoded trusted path list (/usr/bin/sudo
+    # then /bin/sudo). Make the first candidate look present and executable.
+    import os as _os
 
-    monkeypatch.setattr(_shutil, "which", lambda name: "/usr/bin/sudo" if name == "sudo" else None)
+    real_isfile = _os.path.isfile
+    real_access = _os.access
+    monkeypatch.setattr(
+        _os.path, "isfile", lambda p: True if p == "/usr/bin/sudo" else real_isfile(p)
+    )
+    monkeypatch.setattr(
+        _os, "access",
+        lambda p, mode: True if p == "/usr/bin/sudo" else real_access(p, mode),
+    )
     monkeypatch.setattr("os.execv", fake_execv)
 
     rc = cli.main(["user", "switch", "bob"])

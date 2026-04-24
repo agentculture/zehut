@@ -264,12 +264,21 @@ def _cmd_switch(args: argparse.Namespace) -> int:
     # System-backed: exec a login shell as the OS user. This replaces the
     # current process on success.
     import os
-    import shutil
 
     target = rec.system_user or rec.name
-    sudo_path = shutil.which("sudo") or "/usr/bin/sudo"
-    # sudo itself is trusted; we resolve the absolute path up front so a
-    # hostile PATH cannot redirect the exec to a shadow binary.
+    # Deterministic trusted path — `shutil.which("sudo")` would honour a
+    # hostile PATH (Qodo flagged this as path-spoofed-exec). We check the
+    # canonical locations in order and fall back if neither exists.
+    for candidate in ("/usr/bin/sudo", "/bin/sudo"):
+        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            sudo_path = candidate
+            break
+    else:
+        raise ZehutError(
+            code=EXIT_STATE,
+            message="sudo not found in /usr/bin or /bin",
+            remediation="install sudo (e.g. apt install sudo) and re-run",
+        )
     try:
         os.execv(sudo_path, [sudo_path, "-u", target, "-i"])  # noqa: S606 # nosec B606
     except OSError as err:
