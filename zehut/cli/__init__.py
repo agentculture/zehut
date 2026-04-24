@@ -74,9 +74,14 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     # parser_class propagates to every subparser so .error() routes through
     # _ZehutArgumentParser everywhere.
-    parser.add_subparsers(dest="command", parser_class=_ZehutArgumentParser)
-    # Noun groups register here in later tasks (user, configuration),
-    # along with globals (init, doctor, learn, overview, explain).
+    sub = parser.add_subparsers(dest="command", parser_class=_ZehutArgumentParser)
+
+    # Lazy imports avoid circulars (command modules import cli._output etc.).
+    from zehut.cli._commands import init as _init_cmd  # noqa: WPS433
+
+    _init_cmd.register(sub)
+
+    # More noun groups and globals register here in later tasks.
     return parser
 
 
