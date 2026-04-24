@@ -12,7 +12,7 @@ job. Cross-file consistency checks live in ``zehut.cli._commands.doctor``.
 from __future__ import annotations
 
 import tomllib
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from typing import Literal, cast
 
 from zehut import fs
@@ -152,22 +152,36 @@ def set_key(key: str, value: str) -> None:
             f"unknown config key {key!r}; settable keys: {sorted(_SETTABLE_KEYS)}"
         )
     cfg = load()
+    # Start from the current Config values, then overwrite the one being
+    # set. Building a fresh Config explicitly (instead of chaining
+    # ``dataclasses.replace`` across an if/elif) makes the resulting type
+    # unambiguous to Sonar's type-flow (python:S5655) without `cast`.
+    domain = cfg.domain
+    default_backend: Backend = cfg.default_backend
+    email_pattern = cfg.email_pattern
+    email_collision: CollisionMode = cfg.email_collision
     if key == "domain":
-        updated = replace(cfg, domain=value)
+        domain = value
     elif key == "default_backend":
         if value not in _VALID_BACKENDS:
             raise ConfigStateError(
                 f"invalid default_backend {value!r}; expected one of {list(_VALID_BACKENDS)}"
             )
-        # Narrowed by the membership check above — cast so Sonar's type-flow
-        # (python:S5655) and static checkers see the Literal specialisation.
-        updated = replace(cfg, default_backend=cast(Backend, value))
+        default_backend = cast(Backend, value)
     elif key == "email_pattern":
-        updated = replace(cfg, email_pattern=value)
+        email_pattern = value
     else:  # email_collision
         if value not in _VALID_COLLISION:
             raise ConfigStateError(
                 f"invalid email_collision {value!r}; expected one of {list(_VALID_COLLISION)}"
             )
-        updated = replace(cfg, email_collision=cast(CollisionMode, value))
-    save(updated)
+        email_collision = cast(CollisionMode, value)
+    save(
+        Config(
+            schema_version=cfg.schema_version,
+            domain=domain,
+            default_backend=default_backend,
+            email_pattern=email_pattern,
+            email_collision=email_collision,
+        )
+    )
