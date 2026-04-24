@@ -39,6 +39,10 @@ from zehut.cli._errors import (
 _SCHEMA_VERSION = 1
 _CROCKFORD = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 _NAME_RE = re.compile(r"^[a-z_][a-z0-9_-]{0,31}$")
+# Shared remediation string for "user not found" errors — extracted as a
+# constant so the same hint reads identically from get(), update(), and
+# remove() (Sonar python:S1192).
+_LIST_USERS_HINT = "list users with: zehut user list"
 _EMAIL_DOMAIN_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 _MUTABLE_KEYS = frozenset({"nick", "about"})
 _MAX_EMAIL_SUFFIX = 99
@@ -222,14 +226,14 @@ def get(name: str) -> UserRecord:
     raise ZehutError(
         code=EXIT_USER_ERROR,
         message=f"no such zehut user {name!r}",
-        remediation="list users with: zehut user list",
+        remediation=_LIST_USERS_HINT,
     )
 
 
 def _allocate_email(base_email: str, existing_emails: set[str]) -> str:
     if base_email not in existing_emails:
         return base_email
-    local, at, domain = base_email.partition("@")
+    local, _, domain = base_email.partition("@")
     for n in range(2, _MAX_EMAIL_SUFFIX + 1):
         candidate = f"{local}-{n}@{domain}"
         if candidate not in existing_emails:
@@ -322,7 +326,7 @@ def update(name: str, **fields: Any) -> UserRecord:
     raise ZehutError(
         code=EXIT_USER_ERROR,
         message=f"no such zehut user {name!r}",
-        remediation="list users with: zehut user list",
+        remediation=_LIST_USERS_HINT,
     )
 
 
@@ -338,7 +342,7 @@ def remove(name: str, *, backend: Backend, keep_home: bool) -> None:
             raise ZehutError(
                 code=EXIT_USER_ERROR,
                 message=f"no such zehut user {name!r}",
-                remediation="list users with: zehut user list",
+                remediation=_LIST_USERS_HINT,
             )
         doc["users"] = [e for e in doc["users"] if e["name"] != name]
         _save_raw(doc)
@@ -351,6 +355,33 @@ def remove(name: str, *, backend: Backend, keep_home: bool) -> None:
         )
 
 
+def _current_os_user() -> str | None:
+    """Return the current OS user's login name, or None if unresolvable."""
+    try:
+        return pwd.getpwuid(os.geteuid()).pw_name
+    except KeyError:
+        return None
+
+
+def _match_system_backed(records: list[UserRecord], os_name: str) -> str | None:
+    """Return the name of the system-backed record whose OS user matches."""
+    for rec in records:
+        # Fall back to rec.name if system_user isn't populated (older
+        # records or manual edits) — matches how _cmd_switch and doctor
+        # treat system_user as optional.
+        if rec.backend == "system" and (rec.system_user or rec.name) == os_name:
+            return rec.name
+    return None
+
+
+def _match_by_name(records: list[UserRecord], name: str) -> str | None:
+    """Return name if a record with that name exists, else None."""
+    for rec in records:
+        if rec.name == name:
+            return rec.name
+    return None
+
+
 def ambient_name() -> str | None:
     """Resolve the ambient identity name, or None.
 
@@ -360,26 +391,16 @@ def ambient_name() -> str | None:
     2. ``$ZEHUT_IDENTITY`` env var if it names an existing record.
     3. ``None``.
     """
-    try:
-        os_name: str | None = pwd.getpwuid(os.geteuid()).pw_name
-    except KeyError:
-        os_name = None
+    os_name = _current_os_user()
     env_name = os.environ.get("ZEHUT_IDENTITY")
     if os_name is None and not env_name:
         return None
     # Single read so both branches see a consistent snapshot.
     records = list_all()
-    if os_name:
-        for rec in records:
-            # Fall back to rec.name if system_user isn't populated (older
-            # records or manual edits) — matches how _cmd_switch and doctor
-            # treat system_user as optional.
-            if rec.backend == "system" and (rec.system_user or rec.name) == os_name:
-                return rec.name
-    if env_name:
-        for rec in records:
-            if rec.name == env_name:
-                return rec.name
+    if os_name and (hit := _match_system_backed(records, os_name)) is not None:
+        return hit
+    if env_name and (hit := _match_by_name(records, env_name)) is not None:
+        return hit
     return None
 
 

@@ -210,7 +210,9 @@ _CHECKS = (
 )
 
 
-def run(args: argparse.Namespace) -> int:
+def run(args: argparse.Namespace) -> None:
+    # Returns None — _dispatch converts that to EXIT_SUCCESS. doctor is a
+    # report, not a gate, so it never signals failure via exit code.
     json_mode = bool(getattr(args, "json", False))
     results = [c() for c in _CHECKS]
     if json_mode:
@@ -228,7 +230,7 @@ def run(args: argparse.Namespace) -> int:
             },
             json_mode=True,
         )
-        return 0
+        return
 
     lines = []
     for r in results:
@@ -238,4 +240,3 @@ def run(args: argparse.Namespace) -> int:
         if r.remediation:
             lines.append(f"    hint: {r.remediation}")
     emit_result("\n".join(lines), json_mode=False)
-    return 0

@@ -16,7 +16,11 @@ def register(subparsers: "argparse._SubParsersAction") -> None:
     p.set_defaults(func=run)
 
 
-def run(args: argparse.Namespace) -> int:
+def run(args: argparse.Namespace) -> None:
+    # Returns None — _dispatch converts that to EXIT_SUCCESS. Keeping
+    # return-less paths satisfies Sonar python:S3516 ("refactor to not
+    # always return the same value") by ensuring the function has no
+    # value to return at all.
     json_mode = bool(getattr(args, "json", False))
     try:
         cfg = cfg_mod.load()
@@ -33,7 +37,7 @@ def run(args: argparse.Namespace) -> int:
     }
     if json_mode:
         emit_result(payload, json_mode=True)
-        return 0
+        return
     lines = [
         "CONFIG",
         f"  domain:          {cfg.domain}",
@@ -47,4 +51,3 @@ def run(args: argparse.Namespace) -> int:
             f"  - {rec.name} [{rec.backend}] email={rec.email} nick={rec.nick} about={rec.about}"
         )
     emit_result("\n".join(lines), json_mode=False)
-    return 0

@@ -102,20 +102,20 @@ def _register_list(sub: "argparse._SubParsersAction") -> None:
     s.set_defaults(func=_cmd_list)
 
 
-def _cmd_list(args: argparse.Namespace) -> int:
+def _cmd_list(args: argparse.Namespace) -> None:
+    # Returns None — _dispatch converts that to EXIT_SUCCESS.
     json_mode = bool(getattr(args, "json", False))
     recs = users.list_all()
     if json_mode:
         emit_result([users.record_to_dict(r) for r in recs], json_mode=True)
-        return 0
+        return
     if not recs:
         emit_result("(no users)", json_mode=False)
-        return 0
+        return
     lines = [f"{'NAME':<20} {'BACKEND':<10} EMAIL"]
     for rec in recs:
         lines.append(f"{rec.name:<20} {rec.backend:<10} {rec.email}")
     emit_result("\n".join(lines), json_mode=False)
-    return 0
 
 
 # --- show ---------------------------------------------------------------------

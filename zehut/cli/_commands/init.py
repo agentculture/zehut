@@ -33,7 +33,9 @@ def register(subparsers: "argparse._SubParsersAction") -> None:
     p.set_defaults(func=run)
 
 
-def run(args: argparse.Namespace) -> int:
+def run(args: argparse.Namespace) -> None:
+    # Returns None on every success path — _dispatch converts that to
+    # EXIT_SUCCESS. Failure paths raise ZehutError with their own code.
     json_mode = bool(getattr(args, "json", False))
     try:
         privilege.require_root(
@@ -70,7 +72,7 @@ def run(args: argparse.Namespace) -> int:
             },
             json_mode=json_mode,
         )
-        return 0
+        return
 
     if already and args.force:
         # Guard: never wipe a non-empty registry implicitly.
@@ -100,4 +102,3 @@ def run(args: argparse.Namespace) -> int:
         },
         json_mode=json_mode,
     )
-    return 0

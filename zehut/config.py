@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import tomllib
 from dataclasses import dataclass, replace
-from typing import Literal
+from typing import Literal, cast
 
 from zehut import fs
 
@@ -159,7 +159,9 @@ def set_key(key: str, value: str) -> None:
             raise ConfigStateError(
                 f"invalid default_backend {value!r}; expected one of {list(_VALID_BACKENDS)}"
             )
-        updated = replace(cfg, default_backend=value)  # type: ignore[arg-type]
+        # Narrowed by the membership check above — cast so Sonar's type-flow
+        # (python:S5655) and static checkers see the Literal specialisation.
+        updated = replace(cfg, default_backend=cast(Backend, value))
     elif key == "email_pattern":
         updated = replace(cfg, email_pattern=value)
     else:  # email_collision
@@ -167,5 +169,5 @@ def set_key(key: str, value: str) -> None:
             raise ConfigStateError(
                 f"invalid email_collision {value!r}; expected one of {list(_VALID_COLLISION)}"
             )
-        updated = replace(cfg, email_collision=value)  # type: ignore[arg-type]
+        updated = replace(cfg, email_collision=cast(CollisionMode, value))
     save(updated)
