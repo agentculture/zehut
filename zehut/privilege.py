@@ -26,6 +26,11 @@ class PrivilegeError(Exception):
 
 
 def is_root() -> bool:
+    # ZEHUT_ASSUME_ROOT is a test-only hook (see docs/testing.md) — it lets the
+    # self-verify harness exercise privilege-gated commands without running as
+    # real root. Not advertised as a user feature.
+    if os.environ.get("ZEHUT_ASSUME_ROOT") == "1":
+        return True
     return os.geteuid() == 0
 
 

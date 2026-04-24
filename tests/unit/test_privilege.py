@@ -45,3 +45,9 @@ def test_sudo_command_falls_back_to_zehut_when_not_found(monkeypatch):
     monkeypatch.setattr(privilege, "_zehut_binary", lambda: None)
     cmd = privilege.sudo_command(["doctor"])
     assert cmd == "sudo zehut doctor"
+
+
+def test_assume_root_env_bypasses_real_geteuid(monkeypatch):
+    monkeypatch.setattr(privilege.os, "geteuid", lambda: 1000)
+    monkeypatch.setenv("ZEHUT_ASSUME_ROOT", "1")
+    assert privilege.is_root() is True
