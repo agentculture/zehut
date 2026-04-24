@@ -17,7 +17,9 @@ Transactional ordering (spec §5.5):
 
 from __future__ import annotations
 
+import json
 import os
+import pwd
 import re
 import secrets
 import time
@@ -138,12 +140,10 @@ def init_registry() -> None:
     path = fs.users_file()
     if path.exists():
         return
-    import json
-
     fs.atomic_write_text(path, json.dumps(_empty_registry(), indent=2), mode=0o644)
 
 
-def _load_raw() -> dict[str, Any]:
+def _load_raw_unlocked() -> dict[str, Any]:
     path = fs.users_file()
     try:
         doc = fs.read_json(path)
@@ -165,9 +165,12 @@ def _load_raw() -> dict[str, Any]:
     return doc
 
 
-def _save_raw(doc: dict[str, Any]) -> None:
-    import json
+def _load_raw() -> dict[str, Any]:
+    with fs.shared_lock(fs.lock_file()):
+        return _load_raw_unlocked()
 
+
+def _save_raw(doc: dict[str, Any]) -> None:
     fs.atomic_write_text(fs.users_file(), json.dumps(doc, indent=2), mode=0o644)
 
 
@@ -236,7 +239,7 @@ def add(
         )
     cfg = config.load()
     with fs.exclusive_lock(fs.lock_file()):
-        doc = _load_raw()
+        doc = _load_raw_unlocked()
         existing_names = {e["name"] for e in doc["users"]}
         if name in existing_names:
             raise ZehutError(
@@ -283,7 +286,7 @@ def update(name: str, **fields: Any) -> UserRecord:
             remediation="backend, email, and system_user are immutable in v1",
         )
     with fs.exclusive_lock(fs.lock_file()):
-        doc = _load_raw()
+        doc = _load_raw_unlocked()
         for entry in doc["users"]:
             if entry["name"] == name:
                 entry.update({k: v for k, v in fields.items() if k in _MUTABLE_KEYS})
@@ -299,7 +302,7 @@ def update(name: str, **fields: Any) -> UserRecord:
 
 def remove(name: str, *, backend: Backend, keep_home: bool) -> None:
     with fs.exclusive_lock(fs.lock_file()):
-        doc = _load_raw()
+        doc = _load_raw_unlocked()
         target = None
         for entry in doc["users"]:
             if entry["name"] == name:
@@ -313,15 +316,13 @@ def remove(name: str, *, backend: Backend, keep_home: bool) -> None:
             )
         doc["users"] = [e for e in doc["users"] if e["name"] != name]
         _save_raw(doc)
-        try:
-            backend.deprovision(
-                name=name,
-                system_user=target.get("system_user"),
-                keep_home=keep_home,
-            )
-        except ZehutError:
-            # Registry is already clean; doctor will surface the orphan.
-            raise
+        # Registry write is committed. If deprovision raises, the registry
+        # is already clean; zehut doctor will surface the orphan OS user.
+        backend.deprovision(
+            name=name,
+            system_user=target.get("system_user"),
+            keep_home=keep_home,
+        )
 
 
 def ambient_name() -> str | None:
@@ -334,18 +335,20 @@ def ambient_name() -> str | None:
     3. ``None``.
     """
     try:
-        import pwd
-
-        os_name = pwd.getpwuid(os.geteuid()).pw_name
+        os_name: str | None = pwd.getpwuid(os.geteuid()).pw_name
     except KeyError:
         os_name = None
+    env_name = os.environ.get("ZEHUT_IDENTITY")
+    if os_name is None and not env_name:
+        return None
+    # Single read so both branches see a consistent snapshot.
+    records = list_all()
     if os_name:
-        for rec in list_all():
+        for rec in records:
             if rec.backend == "system" and rec.system_user == os_name:
                 return rec.name
-    env_name = os.environ.get("ZEHUT_IDENTITY")
     if env_name:
-        for rec in list_all():
+        for rec in records:
             if rec.name == env_name:
                 return rec.name
     return None

@@ -146,3 +146,58 @@ def test_ulid_is_26_crockford_chars(tmp_zehut):
     u = users._generate_ulid()
     assert len(u) == 26
     assert set(u).issubset(set("0123456789ABCDEFGHJKMNPQRSTVWXYZ"))
+
+
+# --- ambient_name -------------------------------------------------------------
+
+
+def test_ambient_name_none_when_no_match(tmp_zehut, monkeypatch):
+    # No records; OS user doesn't match; env var unset.
+    monkeypatch.delenv("ZEHUT_IDENTITY", raising=False)
+    assert users.ambient_name() is None
+
+
+def test_ambient_name_matches_system_backed_os_user(tmp_zehut, monkeypatch):
+    import types
+
+    be = LogicalBackend()
+    users.add(name="alice", nick=None, about=None, backend_name="logical", backend=be)
+    # Seed a system-backed record by poking the registry directly.
+    doc = users._load_raw_unlocked()
+    doc["users"].append(
+        {
+            "id": "01FAKE0000000000000000000A",
+            "name": "bob",
+            "nick": None,
+            "about": None,
+            "email": "bob@agents.example.com",
+            "backend": "system",
+            "system_user": "bob",
+            "system_uid": 1234,
+            "created_at": "2026-04-24T00:00:00Z",
+            "updated_at": "2026-04-24T00:00:00Z",
+        }
+    )
+    users._save_raw(doc)
+    monkeypatch.setattr(
+        users.pwd,
+        "getpwuid",
+        lambda uid: types.SimpleNamespace(pw_name="bob", pw_uid=1234),
+    )
+    monkeypatch.delenv("ZEHUT_IDENTITY", raising=False)
+    assert users.ambient_name() == "bob"
+
+
+def test_ambient_name_env_var_fallback(tmp_zehut, monkeypatch):
+    import types
+
+    be = LogicalBackend()
+    users.add(name="alice", nick=None, about=None, backend_name="logical", backend=be)
+    # OS user does not match any zehut record.
+    monkeypatch.setattr(
+        users.pwd,
+        "getpwuid",
+        lambda uid: types.SimpleNamespace(pw_name="nobody", pw_uid=65534),
+    )
+    monkeypatch.setenv("ZEHUT_IDENTITY", "alice")
+    assert users.ambient_name() == "alice"
