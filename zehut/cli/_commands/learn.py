@@ -16,7 +16,7 @@ _SKILL_BODY = """\
 name: zehut
 description: >
   Drive the zehut CLI to manage local machine identities
-  (system-backed and logical) and their emails.
+  (system-backed users and their sub-users) and their emails.
 ---
 
 # Using zehut
@@ -26,14 +26,20 @@ top-level global.
 
 ## Core commands
 
-- ``zehut init --domain <d> --default-backend system|logical`` — one-time bootstrap. Needs sudo.
-- ``zehut user create <name> [--system|--logical] [--nick ..] [--about ..]`` — create a user.
+- ``zehut init --domain <d> --default-backend system|subuser`` — one-time
+  bootstrap. Needs sudo.
+- ``zehut user create <name> [--system|--subuser --parent <name>]
+  [--nick ..] [--about ..]`` — create a user. Sub-users are
+  metadata-only accounts owned by a system-backed parent; deleting the
+  parent cascade-deletes its sub-users.
 - ``zehut user list [--json]``, ``zehut user show [<name>]`` — read.
 - ``zehut user set [<name>] nick=.. about=..`` — mutate metadata (sudo).
-- ``zehut user switch <name>`` — logical: prints ``export ZEHUT_IDENTITY=…``
-  (use with ``eval``). System: execs ``sudo -u <user> -i``.
+- ``zehut user switch <name>`` — sub-user: prints
+  ``export ZEHUT_IDENTITY=…`` (use with ``eval``). System: execs
+  ``sudo -u <user> -i``.
 - ``zehut user whoami`` (aliased ``current``) — ambient identity.
-- ``zehut user delete <name> [--keep-home]`` — remove.
+- ``zehut user delete <name> [--keep-home]`` — remove. Deleting a
+  system user cascades to its sub-users.
 - ``zehut configuration show|set|set-domain`` — config ops (sudo for writes).
 - ``zehut doctor`` — read-only health checks.
 - ``zehut overview`` — machine-readable snapshot.

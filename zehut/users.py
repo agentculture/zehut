@@ -36,7 +36,7 @@ from zehut.cli._errors import (
     ZehutError,
 )
 
-_SCHEMA_VERSION = 1
+_SCHEMA_VERSION = 2
 _CROCKFORD = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 _NAME_RE = re.compile(r"^[a-z_][a-z0-9_-]{0,31}$")
 # Shared remediation string for "user not found" errors — extracted as a
@@ -58,6 +58,7 @@ class UserRecord:
     backend: str
     system_user: str | None
     system_uid: int | None
+    parent_id: str | None
     created_at: str
     updated_at: str
 
@@ -172,7 +173,10 @@ def _load_raw_unlocked() -> dict[str, Any]:
                 f"unsupported users.json schema_version {doc.get('schema_version')!r}; "
                 f"expected {_SCHEMA_VERSION}"
             ),
-            remediation="zehut migrate is not yet available (v1); re-init is destructive",
+            remediation=(
+                "zehut migrate is not yet available; re-init is destructive. "
+                "v1 → v2 replaced the 'logical' backend with 'subuser'."
+            ),
         )
     return doc
 
@@ -206,6 +210,7 @@ def _to_record(entry: dict[str, Any]) -> UserRecord:
         backend=entry["backend"],
         system_user=entry.get("system_user"),
         system_uid=entry.get("system_uid"),
+        parent_id=entry.get("parent_id"),
         created_at=entry["created_at"],
         updated_at=entry["updated_at"],
     )
@@ -245,6 +250,58 @@ def _allocate_email(base_email: str, existing_emails: set[str]) -> str:
     )
 
 
+def _resolve_parent(
+    doc: dict[str, Any], *, backend_name: str, parent_name: str | None
+) -> str | None:
+    """Validate --parent against the registry and return the parent's id.
+
+    Rules (spec §Sub-users):
+
+    * ``backend_name == "subuser"`` — ``parent_name`` is required; the
+      parent must exist, must have ``backend == "system"``, and must
+      itself be top-level (``parent_id is None``). Flat hierarchy only.
+    * Other backends — ``parent_name`` must be ``None``. Only sub-users
+      have parents.
+    """
+    if backend_name == "subuser":
+        if not parent_name:
+            raise ZehutError(
+                code=EXIT_USER_ERROR,
+                message="--subuser requires --parent <name>",
+                remediation="pass --parent <system-user-name>",
+            )
+        parent = next((e for e in doc["users"] if e["name"] == parent_name), None)
+        if parent is None:
+            raise ZehutError(
+                code=EXIT_USER_ERROR,
+                message=f"no such parent user {parent_name!r}",
+                remediation=_LIST_USERS_HINT,
+            )
+        if parent["backend"] != "system":
+            raise ZehutError(
+                code=EXIT_USER_ERROR,
+                message=(
+                    f"parent {parent_name!r} has backend {parent['backend']!r}; "
+                    "only system-backed users can own sub-users"
+                ),
+                remediation="pick a system-backed parent",
+            )
+        if parent.get("parent_id") is not None:
+            raise ZehutError(
+                code=EXIT_USER_ERROR,
+                message=f"parent {parent_name!r} is itself a sub-user; hierarchy is flat",
+                remediation="pick a top-level (system-backed) user as parent",
+            )
+        return parent["id"]
+    if parent_name:
+        raise ZehutError(
+            code=EXIT_USER_ERROR,
+            message=f"--parent is only valid with --subuser (got backend {backend_name!r})",
+            remediation="drop --parent, or switch to --subuser",
+        )
+    return None
+
+
 def add(
     *,
     name: str,
@@ -252,6 +309,7 @@ def add(
     about: str | None,
     backend_name: str,
     backend: Backend,
+    parent_name: str | None = None,
 ) -> UserRecord:
     if not _NAME_RE.match(name):
         raise ZehutError(
@@ -269,6 +327,7 @@ def add(
                 message=f"zehut user {name!r} already exists",
                 remediation="pick a different name or edit with: zehut user set",
             )
+        parent_id = _resolve_parent(doc, backend_name=backend_name, parent_name=parent_name)
         # Spec §6.2: refuse to adopt foreign OS users. Checked before
         # backend.provision so we surface EXIT_CONFLICT (not EXIT_BACKEND).
         if backend_name == "system" and backend.exists(name):
@@ -299,6 +358,7 @@ def add(
             "backend": backend_name,
             "system_user": provision.system_user,
             "system_uid": provision.system_uid,
+            "parent_id": parent_id,
             "created_at": now,
             "updated_at": now,
         }
@@ -330,21 +390,29 @@ def update(name: str, **fields: Any) -> UserRecord:
     )
 
 
-def remove(name: str, *, backend: Backend, keep_home: bool) -> None:
+def remove(name: str, *, backend: Backend, keep_home: bool) -> list[str]:
+    """Remove ``name`` from the registry. Returns the names of any
+    sub-users that were cascade-deleted alongside it (empty list if none).
+
+    Cascade: when ``target`` is a system-backed user, every record whose
+    ``parent_id`` matches its ULID is dropped in the same transaction.
+    Sub-users have no OS-layer cleanup (``SubUserBackend.deprovision`` is
+    a no-op) so we don't invoke a backend for them.
+    """
     with fs.exclusive_lock(fs.lock_file()):
         doc = _load_raw_unlocked()
-        target = None
-        for entry in doc["users"]:
-            if entry["name"] == name:
-                target = entry
-                break
+        target = next((e for e in doc["users"] if e["name"] == name), None)
         if target is None:
             raise ZehutError(
                 code=EXIT_USER_ERROR,
                 message=f"no such zehut user {name!r}",
                 remediation=_LIST_USERS_HINT,
             )
-        doc["users"] = [e for e in doc["users"] if e["name"] != name]
+        cascaded: list[str] = [
+            e["name"] for e in doc["users"] if e.get("parent_id") == target["id"]
+        ]
+        drop = {name, *cascaded}
+        doc["users"] = [e for e in doc["users"] if e["name"] not in drop]
         _save_raw(doc)
         # Registry write is committed. If deprovision raises, the registry
         # is already clean; zehut doctor will surface the orphan OS user.
@@ -353,6 +421,7 @@ def remove(name: str, *, backend: Backend, keep_home: bool) -> None:
             system_user=target.get("system_user"),
             keep_home=keep_home,
         )
+    return cascaded
 
 
 def _current_os_user() -> str | None:

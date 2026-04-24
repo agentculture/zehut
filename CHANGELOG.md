@@ -4,6 +4,25 @@ All notable changes to `zehut` will be documented in this file. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.2.0] - 2026-04-24
+
+
+### Added
+
+- `--subuser` backend and `--parent` flag on `zehut user create` — replaces `--logical`.
+- Cascade delete: removing a system-backed user automatically removes every sub-user whose `parent_id` matches, reported as `cascaded_subusers` in the delete output.
+- `subuser_parents_valid` check in `zehut doctor` — catches hand-edited drift in `users.json` where sub-users point at missing or non-system parents.
+- `zehut explain subuser` topic.
+
+
+### Changed
+
+- **BREAKING:** `users.json` `schema_version` 1 → 2. Every record now carries `parent_id` (ULID or null); the `logical` backend is replaced by `subuser`. No automatic migration; re-initialise with `zehut init --force` on an empty registry.
+- **BREAKING:** `configuration.default_backend` accepts `system | subuser` (was `system | logical`). `zehut init --default-backend` choices updated.
+- **BREAKING:** `zehut user create --logical` is gone. Use `zehut user create <name> --subuser --parent <system-user>`. Sub-users require a system-backed parent (hierarchy is flat: sub-users cannot own sub-users).
+- `zehut user list` gained a `PARENT` column.
+- `zehut doctor` `logical_names_free` check renamed to `subuser_names_free`.
+
 ## [Unreleased]
 
 ## [0.1.0] — 2026-04-24

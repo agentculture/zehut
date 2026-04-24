@@ -134,14 +134,14 @@ def _check_system_users_resolve() -> Check:
     return Check("system_users_resolve", "PASS", f"{len(recs)} users consistent", "")
 
 
-def _check_logical_name_vs_os() -> Check:
+def _check_subuser_name_vs_os() -> Check:
     try:
         recs = users.list_all()
     except Exception:
-        return Check("logical_names_free", "PASS", "registry unreadable; skipped", "")
+        return Check("subuser_names_free", "PASS", "registry unreadable; skipped", "")
     collisions: list[str] = []
     for rec in recs:
-        if rec.backend != "logical":
+        if rec.backend != "subuser":
             continue
         try:
             pwd.getpwnam(rec.name)
@@ -150,12 +150,50 @@ def _check_logical_name_vs_os() -> Check:
             continue
     if collisions:
         return Check(
-            "logical_names_free",
+            "subuser_names_free",
             "WARN",
-            f"logical names also exist as OS users: {collisions}",
-            "rename (v2) or delete the colliding logical user",
+            f"sub-user names also exist as OS users: {collisions}",
+            "rename (v2) or delete the colliding sub-user",
         )
-    return Check("logical_names_free", "PASS", "no collisions", "")
+    return Check("subuser_names_free", "PASS", "no collisions", "")
+
+
+def _check_subuser_parents_valid() -> Check:
+    """Every sub-user must have a valid system-backed parent.
+
+    Enforcement at ``users.add`` prevents new violations, but this check
+    catches drift from manual edits to users.json.
+    """
+    try:
+        recs = users.list_all()
+    except Exception:
+        return Check("subuser_parents_valid", "PASS", "registry unreadable; skipped", "")
+    by_id = {r.id: r for r in recs}
+    problems: list[str] = []
+    for rec in recs:
+        if rec.backend != "subuser":
+            if rec.parent_id is not None:
+                problems.append(f"{rec.name}: non-subuser has parent_id={rec.parent_id!r}")
+            continue
+        if not rec.parent_id:
+            problems.append(f"{rec.name}: sub-user is missing parent_id")
+            continue
+        parent = by_id.get(rec.parent_id)
+        if parent is None:
+            problems.append(f"{rec.name}: parent_id {rec.parent_id!r} not found")
+        elif parent.backend != "system":
+            problems.append(
+                f"{rec.name}: parent {parent.name!r} has backend {parent.backend!r}"
+                " (expected system)"
+            )
+    if problems:
+        return Check(
+            "subuser_parents_valid",
+            "FAIL",
+            "; ".join(problems),
+            "fix users.json manually or re-create the affected sub-user",
+        )
+    return Check("subuser_parents_valid", "PASS", "all sub-users have valid parents", "")
 
 
 def _check_ambient_resolution() -> Check:
@@ -204,7 +242,8 @@ _CHECKS = (
     _check_file_modes,
     _check_useradd_on_path,
     _check_system_users_resolve,
-    _check_logical_name_vs_os,
+    _check_subuser_name_vs_os,
+    _check_subuser_parents_valid,
     _check_ambient_resolution,
     _check_domain_format,
 )

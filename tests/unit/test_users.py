@@ -7,7 +7,7 @@ import json
 import pytest
 
 from zehut import config, fs, users
-from zehut.backend.logical import LogicalBackend
+from zehut.backend.subuser import SubUserBackend
 from zehut.cli._errors import EXIT_CONFLICT, EXIT_STATE, EXIT_USER_ERROR, ZehutError
 
 
@@ -19,10 +19,48 @@ def tmp_zehut(tmp_path, monkeypatch):
     monkeypatch.setenv("ZEHUT_STATE_DIR", str(state_dir))
     config_dir.mkdir()
     state_dir.mkdir()
-    cfg = config.Config.default(domain="agents.example.com", backend="logical")
+    cfg = config.Config.default(domain="agents.example.com", backend="subuser")
     config.save(cfg)
     users.init_registry()
     return config_dir, state_dir
+
+
+def _seed_system_parent(name: str = "parent", uid: int = 1234) -> str:
+    """Inject a system-backed parent row without running useradd.
+
+    Returns the seeded parent's ULID so tests can assert parent_id linkage
+    when needed.
+    """
+    doc = users._load_raw_unlocked()
+    parent_id = users._generate_ulid()
+    doc["users"].append(
+        {
+            "id": parent_id,
+            "name": name,
+            "nick": None,
+            "about": None,
+            "email": f"{name}@agents.example.com",
+            "backend": "system",
+            "system_user": name,
+            "system_uid": uid,
+            "parent_id": None,
+            "created_at": "2026-04-24T00:00:00Z",
+            "updated_at": "2026-04-24T00:00:00Z",
+        }
+    )
+    users._save_raw(doc)
+    return parent_id
+
+
+def _add_subuser(name: str, *, parent: str = "parent", **kw):
+    return users.add(
+        name=name,
+        nick=kw.get("nick"),
+        about=kw.get("about"),
+        backend_name="subuser",
+        backend=SubUserBackend(),
+        parent_name=parent,
+    )
 
 
 # --- email generation ---------------------------------------------------------
@@ -61,41 +99,126 @@ def test_init_registry_creates_empty_file(tmp_zehut):
     _, state_dir = tmp_zehut
     path = state_dir / "users.json"
     assert path.exists()
-    assert fs.read_json(path) == {"schema_version": 1, "users": []}
+    assert fs.read_json(path) == {"schema_version": 2, "users": []}
 
 
-def test_add_then_list(tmp_zehut):
-    be = LogicalBackend()
-    rec = users.add(name="alice", nick="Ali", about="qa", backend_name="logical", backend=be)
+def test_add_subuser_then_list(tmp_zehut):
+    parent_id = _seed_system_parent()
+    rec = _add_subuser("alice", nick="Ali", about="qa")
     assert rec.name == "alice"
-    assert rec.backend == "logical"
+    assert rec.backend == "subuser"
+    assert rec.parent_id == parent_id
     assert rec.email.endswith("@agents.example.com")
     lst = users.list_all()
-    assert len(lst) == 1
-    assert lst[0].name == "alice"
+    assert len(lst) == 2  # parent + subuser
+    names = {r.name for r in lst}
+    assert names == {"parent", "alice"}
 
 
 def test_add_duplicate_name_raises_conflict(tmp_zehut):
-    be = LogicalBackend()
-    users.add(name="alice", nick=None, about=None, backend_name="logical", backend=be)
+    _seed_system_parent()
+    _add_subuser("alice")
     with pytest.raises(ZehutError) as exc:
-        users.add(name="alice", nick=None, about=None, backend_name="logical", backend=be)
+        _add_subuser("alice")
     assert exc.value.code == EXIT_CONFLICT
+
+
+def test_add_subuser_without_parent_raises(tmp_zehut):
+    with pytest.raises(ZehutError) as exc:
+        users.add(
+            name="alice",
+            nick=None,
+            about=None,
+            backend_name="subuser",
+            backend=SubUserBackend(),
+            parent_name=None,
+        )
+    assert exc.value.code == EXIT_USER_ERROR
+    assert "--parent" in exc.value.message
+
+
+def test_add_subuser_with_missing_parent_raises(tmp_zehut):
+    with pytest.raises(ZehutError) as exc:
+        _add_subuser("alice", parent="ghost")
+    assert exc.value.code == EXIT_USER_ERROR
+
+
+def test_add_subuser_with_subuser_parent_raises(tmp_zehut):
+    # Attempting to use a sub-user as parent trips the "parent must be
+    # system-backed" check — which is the constraint that enforces the
+    # flat hierarchy at creation time.
+    _seed_system_parent()
+    _add_subuser("bot1")
+    with pytest.raises(ZehutError) as exc:
+        _add_subuser("bot2", parent="bot1")
+    assert exc.value.code == EXIT_USER_ERROR
+    assert "system-backed" in exc.value.message
+
+
+def test_add_subuser_rejects_parent_with_its_own_parent_id(tmp_zehut):
+    # Belt-and-suspenders: if users.json has been tampered with so that
+    # a system-backed user has a non-null parent_id, creation must still
+    # refuse to use it as a parent (flat-hierarchy invariant).
+    _seed_system_parent("root")
+    doc = users._load_raw_unlocked()
+    # Manually promote a second "system" entry to sub-of-root.
+    tainted_id = users._generate_ulid()
+    doc["users"].append(
+        {
+            "id": tainted_id,
+            "name": "tainted",
+            "nick": None,
+            "about": None,
+            "email": "tainted@agents.example.com",
+            "backend": "system",
+            "system_user": "tainted",
+            "system_uid": 9999,
+            "parent_id": doc["users"][0]["id"],
+            "created_at": "2026-04-24T00:00:00Z",
+            "updated_at": "2026-04-24T00:00:00Z",
+        }
+    )
+    users._save_raw(doc)
+    with pytest.raises(ZehutError) as exc:
+        _add_subuser("bot", parent="tainted")
+    assert exc.value.code == EXIT_USER_ERROR
+    assert "flat" in exc.value.message
+
+
+def test_add_parent_rejected_for_non_subuser(tmp_zehut, monkeypatch):
+    # Passing --parent with any non-subuser backend must be rejected.
+    # We use the subuser backend as the "wrong" backend_name label since
+    # no system-backed creation in a unit test would be safe, but the
+    # validator runs before any backend call.
+    _seed_system_parent()
+    with pytest.raises(ZehutError) as exc:
+        users.add(
+            name="alice",
+            nick=None,
+            about=None,
+            backend_name="system",
+            backend=SubUserBackend(),
+            parent_name="parent",
+        )
+    assert exc.value.code == EXIT_USER_ERROR
+    assert "--parent" in exc.value.message
 
 
 def test_add_email_collision_appends_suffix(tmp_zehut, monkeypatch):
     # Force every render to produce "ali@..." so collisions happen.
     monkeypatch.setattr(users, "render_email", lambda pattern, **kw: f"ali@{kw['domain']}")
-    be = LogicalBackend()
-    r1 = users.add(name="alice", nick="Ali", about=None, backend_name="logical", backend=be)
-    r2 = users.add(name="alice2", nick="Ali", about=None, backend_name="logical", backend=be)
+    _seed_system_parent()
+    r1 = _add_subuser("alice", nick="Ali")
+    r2 = _add_subuser("alice2", nick="Ali")
+    # One of them collides with "parent@..."; the patched render always
+    # returns "ali@...", so the second subuser gets the suffix.
     assert r1.email == "ali@agents.example.com"
     assert r2.email == "ali-2@agents.example.com"
 
 
 def test_get_returns_record(tmp_zehut):
-    be = LogicalBackend()
-    users.add(name="alice", nick=None, about=None, backend_name="logical", backend=be)
+    _seed_system_parent()
+    _add_subuser("alice")
     rec = users.get("alice")
     assert rec.name == "alice"
 
@@ -107,8 +230,8 @@ def test_get_missing_raises_user_error(tmp_zehut):
 
 
 def test_update_sets_nick_and_about(tmp_zehut):
-    be = LogicalBackend()
-    users.add(name="alice", nick=None, about=None, backend_name="logical", backend=be)
+    _seed_system_parent()
+    _add_subuser("alice")
     users.update("alice", nick="Ali", about="qa agent")
     rec = users.get("alice")
     assert rec.nick == "Ali"
@@ -116,25 +239,46 @@ def test_update_sets_nick_and_about(tmp_zehut):
 
 
 def test_update_rejects_immutable_keys(tmp_zehut):
-    be = LogicalBackend()
-    users.add(name="alice", nick=None, about=None, backend_name="logical", backend=be)
+    _seed_system_parent()
+    _add_subuser("alice")
     with pytest.raises(ZehutError) as exc:
         users.update("alice", email="other@x.com")
     assert exc.value.code == EXIT_USER_ERROR
 
 
 def test_remove_drops_record(tmp_zehut):
-    be = LogicalBackend()
-    users.add(name="alice", nick=None, about=None, backend_name="logical", backend=be)
-    users.remove("alice", backend=be, keep_home=False)
-    assert users.list_all() == []
+    _seed_system_parent()
+    _add_subuser("alice")
+    cascaded = users.remove("alice", backend=SubUserBackend(), keep_home=False)
+    assert cascaded == []
+    remaining = {r.name for r in users.list_all()}
+    assert remaining == {"parent"}
+
+
+def test_remove_cascade_deletes_subusers(tmp_zehut, monkeypatch):
+    """Deleting a system-backed parent cascade-deletes its sub-users."""
+    _seed_system_parent("agent")
+    _seed_system_parent("other")  # unrelated parent, must not be touched
+    _add_subuser("bot1", parent="agent")
+    _add_subuser("bot2", parent="agent")
+    _add_subuser("bot-other", parent="other")
+
+    # Stub the system backend's deprovision so we don't actually try to
+    # call userdel. A SubUserBackend deprovision is a no-op and safe to
+    # use here as a stand-in since remove() only calls it against the
+    # named 'agent' target.
+    cascaded = users.remove("agent", backend=SubUserBackend(), keep_home=False)
+
+    assert sorted(cascaded) == ["bot1", "bot2"]
+    remaining = {r.name for r in users.list_all()}
+    assert remaining == {"other", "bot-other"}
 
 
 def test_registry_load_rejects_wrong_schema(tmp_zehut):
     _, state_dir = tmp_zehut
     fs.atomic_write_text(
         state_dir / "users.json",
-        json.dumps({"schema_version": 2, "users": []}),
+        json.dumps({"schema_version": 99, "users": []}),
         mode=0o644,
     )
     with pytest.raises(ZehutError) as exc:
@@ -160,25 +304,8 @@ def test_ambient_name_none_when_no_match(tmp_zehut, monkeypatch):
 def test_ambient_name_matches_system_backed_os_user(tmp_zehut, monkeypatch):
     import types
 
-    be = LogicalBackend()
-    users.add(name="alice", nick=None, about=None, backend_name="logical", backend=be)
-    # Seed a system-backed record by poking the registry directly.
-    doc = users._load_raw_unlocked()
-    doc["users"].append(
-        {
-            "id": "01FAKE0000000000000000000A",
-            "name": "bob",
-            "nick": None,
-            "about": None,
-            "email": "bob@agents.example.com",
-            "backend": "system",
-            "system_user": "bob",
-            "system_uid": 1234,
-            "created_at": "2026-04-24T00:00:00Z",
-            "updated_at": "2026-04-24T00:00:00Z",
-        }
-    )
-    users._save_raw(doc)
+    _seed_system_parent("bob", uid=1234)
+    _add_subuser("alice", parent="bob")
     monkeypatch.setattr(
         users.pwd,
         "getpwuid",
@@ -191,8 +318,8 @@ def test_ambient_name_matches_system_backed_os_user(tmp_zehut, monkeypatch):
 def test_ambient_name_env_var_fallback(tmp_zehut, monkeypatch):
     import types
 
-    be = LogicalBackend()
-    users.add(name="alice", nick=None, about=None, backend_name="logical", backend=be)
+    _seed_system_parent()
+    _add_subuser("alice")
     # OS user does not match any zehut record.
     monkeypatch.setattr(
         users.pwd,

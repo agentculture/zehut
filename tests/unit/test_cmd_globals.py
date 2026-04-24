@@ -19,8 +19,20 @@ def tmp_zehut(tmp_path, monkeypatch):
     config_dir.mkdir()
     state_dir.mkdir()
     monkeypatch.setattr("zehut.privilege.os.geteuid", lambda: 0)
-    cli.main(["init", "--domain", "agents.example.com", "--default-backend", "logical"])
-    cli.main(["user", "create", "alice", "--nick", "Ali"])
+
+    from zehut.backend import system as system_mod
+    from zehut.backend.base import ProvisionResult
+
+    monkeypatch.setattr(
+        system_mod.SystemBackend,
+        "provision",
+        lambda self, *, name: ProvisionResult(system_user=name, system_uid=2000),
+    )
+    monkeypatch.setattr(system_mod.SystemBackend, "exists", lambda self, name: False)
+
+    cli.main(["init", "--domain", "agents.example.com", "--default-backend", "subuser"])
+    cli.main(["user", "create", "agent", "--system"])
+    cli.main(["user", "create", "alice", "--subuser", "--parent", "agent", "--nick", "Ali"])
     return config_dir, state_dir
 
 
@@ -41,7 +53,7 @@ def test_overview_json_shape(tmp_zehut, capsys):
     assert "config" in payload
     assert "users" in payload
     assert payload["config"]["domain"] == "agents.example.com"
-    assert payload["users"][0]["name"] == "alice"
+    assert {u["name"] for u in payload["users"]} == {"agent", "alice"}
 
 
 def test_overview_text(tmp_zehut, capsys):

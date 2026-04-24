@@ -1,7 +1,7 @@
 [project]
 name = "zehut"
-version = "0.1.0"
-description = "Agents-first identity layer — local system & logical user registry with email assignment."
+version = "0.2.0"
+description = "Agents-first identity layer — local system users and owned sub-users, with email assignment."
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.12"
