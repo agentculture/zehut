@@ -131,7 +131,10 @@ def main(argv: list[str] | None = None) -> int:
     if getattr(args, "command", None) is None:
         parser.print_help()
         return 0
-    return _dispatch(args)
+    try:
+        return _dispatch(args)
+    except SystemExit as exc:
+        return int(exc.code) if exc.code is not None else 0
 
 
 if __name__ == "__main__":

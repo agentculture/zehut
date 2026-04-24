@@ -30,6 +30,8 @@ def register(subparsers: "argparse._SubParsersAction") -> None:
     _register_show(sub)
     _register_set(sub)
     _register_delete(sub)
+    _register_switch(sub)
+    _register_whoami(sub)
 
 
 # --- create -------------------------------------------------------------------
@@ -238,4 +240,62 @@ def _cmd_delete(args: argparse.Namespace) -> int:
         backend = LogicalBackend()
     users.remove(args.name, backend=backend, keep_home=args.keep_home)
     emit_result({"deleted": args.name, "backend": rec.backend}, json_mode=json_mode)
+    return 0
+
+
+# --- switch -------------------------------------------------------------------
+
+
+def _register_switch(sub: "argparse._SubParsersAction") -> None:
+    s = sub.add_parser(
+        "switch",
+        help="Switch identity: execs `sudo -u` for system; prints export for logical.",
+    )
+    s.add_argument("name")
+    s.set_defaults(func=_cmd_switch)
+
+
+def _cmd_switch(args: argparse.Namespace) -> int:
+    rec = users.get(args.name)
+    if rec.backend == "logical":
+        # Print an export line for ``eval $(zehut user switch <name>)``.
+        emit_result(f"export ZEHUT_IDENTITY={rec.name}", json_mode=False)
+        return 0
+    # System-backed: exec a login shell as the OS user. This replaces the
+    # current process on success.
+    import os
+
+    target = rec.system_user or rec.name
+    os.execvp("sudo", ["sudo", "-u", target, "-i"])  # noqa: S606,S607
+    # If execvp returns, something broke.
+    raise ZehutError(  # pragma: no cover — execvp only returns on failure
+        code=EXIT_STATE,
+        message="execvp returned unexpectedly",
+        remediation="verify sudo is installed and on PATH",
+    )
+
+
+# --- whoami / current ---------------------------------------------------------
+
+
+def _register_whoami(sub: "argparse._SubParsersAction") -> None:
+    for verb in ("whoami", "current"):
+        s = sub.add_parser(verb, help="Print the ambient zehut identity.")
+        s.set_defaults(func=_cmd_whoami)
+
+
+def _cmd_whoami(args: argparse.Namespace) -> int:
+    json_mode = bool(getattr(args, "json", False))
+    name = users.ambient_name()
+    if name is None:
+        raise ZehutError(
+            code=EXIT_USER_ERROR,
+            message="no current zehut user",
+            remediation="run 'zehut user switch <name>' or 'zehut user create <name>'",
+        )
+    rec = users.get(name)
+    if json_mode:
+        emit_result(users.record_to_dict(rec), json_mode=True)
+    else:
+        emit_result(f"{rec.name} ({rec.backend}, email={rec.email})", json_mode=False)
     return 0
