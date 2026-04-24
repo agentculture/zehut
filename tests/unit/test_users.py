@@ -274,6 +274,46 @@ def test_remove_cascade_deletes_subusers(tmp_zehut, monkeypatch):
     assert remaining == {"other", "bot-other"}
 
 
+def test_remove_does_not_cascade_non_subuser_children(tmp_zehut):
+    """Cascade is scoped to `backend == "subuser"`.
+
+    Guard against a tampered registry: a system-backed record that has
+    been hand-edited to carry a ``parent_id`` MUST NOT be swept away by
+    the cascade — doing so would leave an orphan OS account. The
+    tampered row is surfaced by ``doctor.subuser_parents_valid``
+    instead.
+    """
+    parent_id = _seed_system_parent("agent")
+    # Genuine sub-user under agent — this one should be cascaded.
+    _add_subuser("legit_bot", parent="agent")
+    # Tamper: a *system-backed* row whose parent_id points at agent.
+    doc = users._load_raw_unlocked()
+    doc["users"].append(
+        {
+            "id": users._generate_ulid(),
+            "name": "tampered_sys",
+            "nick": None,
+            "about": None,
+            "email": "tampered_sys@agents.example.com",
+            "backend": "system",
+            "system_user": "tampered_sys",
+            "system_uid": 8888,
+            "parent_id": parent_id,
+            "created_at": "2026-04-24T00:00:00Z",
+            "updated_at": "2026-04-24T00:00:00Z",
+        }
+    )
+    users._save_raw(doc)
+
+    cascaded = users.remove("agent", backend=SubUserBackend(), keep_home=False)
+    assert cascaded == ["legit_bot"]
+    remaining = {r.name for r in users.list_all()}
+    # The tampered system row must survive — it's still present, now
+    # with a dangling parent_id that doctor will report as FAIL. The
+    # user has to delete it explicitly so its OS backend runs.
+    assert remaining == {"tampered_sys"}
+
+
 def test_registry_load_rejects_wrong_schema(tmp_zehut):
     _, state_dir = tmp_zehut
     fs.atomic_write_text(

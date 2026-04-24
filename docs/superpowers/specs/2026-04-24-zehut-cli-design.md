@@ -1,10 +1,10 @@
 # zehut CLI — v1 design
 
 **Date:** 2026-04-24
-**Status:** Partially superseded (0.2.0)
+**Status:** Partially superseded (1.0.0)
 **Applies to:** `zehut` package on PyPI / TestPyPI
 
-> **Note (0.2.0):** the `logical` backend described below has been
+> **Note (1.0.0):** the `logical` backend described below has been
 > replaced by `subuser` (requires a system-backed parent;
 > cascade-deleted with it), and `users.json` has bumped to
 > `schema_version = 2`. See

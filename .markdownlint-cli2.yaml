@@ -2,6 +2,8 @@ config:
   default: true
   MD013: false  # line-length
   MD060: false  # no-hr-after-heading (lint-cli2 plugin unused here)
+  MD024:
+    siblings_only: true  # allow "### Added" under each Keep-a-Changelog release
   MD033:        # allow inline HTML (for the occasional <br>)
     allowed_elements: [br, details, summary]
 

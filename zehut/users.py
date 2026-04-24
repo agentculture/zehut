@@ -394,10 +394,17 @@ def remove(name: str, *, backend: Backend, keep_home: bool) -> list[str]:
     """Remove ``name`` from the registry. Returns the names of any
     sub-users that were cascade-deleted alongside it (empty list if none).
 
-    Cascade: when ``target`` is a system-backed user, every record whose
-    ``parent_id`` matches its ULID is dropped in the same transaction.
-    Sub-users have no OS-layer cleanup (``SubUserBackend.deprovision`` is
-    a no-op) so we don't invoke a backend for them.
+    The named target always goes through its ``backend.deprovision``
+    (a real `userdel` for system users; a no-op for sub-users). Cascaded
+    children are scoped to ``backend == "subuser"`` only and skip the
+    backend call because sub-users have no OS-layer cleanup.
+
+    Scoping the cascade to sub-users is a safety rail: if ``users.json``
+    has been hand-edited so a system-backed record carries a
+    ``parent_id``, the cascade must NOT drop that system record — doing
+    so would leave an orphan OS account invisible to
+    ``doctor.system_users_resolve``. ``doctor.subuser_parents_valid``
+    surfaces the tampered row instead.
     """
     with fs.exclusive_lock(fs.lock_file()):
         doc = _load_raw_unlocked()
@@ -409,7 +416,9 @@ def remove(name: str, *, backend: Backend, keep_home: bool) -> list[str]:
                 remediation=_LIST_USERS_HINT,
             )
         cascaded: list[str] = [
-            e["name"] for e in doc["users"] if e.get("parent_id") == target["id"]
+            e["name"]
+            for e in doc["users"]
+            if e.get("parent_id") == target["id"] and e.get("backend") == "subuser"
         ]
         drop = {name, *cascaded}
         doc["users"] = [e for e in doc["users"] if e["name"] not in drop]

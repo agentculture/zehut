@@ -3,7 +3,7 @@
 **Date:** 2026-04-24
 **Supersedes (partially):** `2026-04-24-zehut-cli-design.md` §5.3 (users.json),
 §5.1 (backings), and the CLI verbs in §4.
-**Status:** Landed (zehut 0.2.0).
+**Status:** Landed (zehut 1.0.0).
 
 ## 1. Motivation
 

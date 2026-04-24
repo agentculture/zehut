@@ -88,21 +88,19 @@ def test_full_subuser_lifecycle(zehut_env):
     names = {r["name"] for r in payload}
     assert names == {"agent", "alice"}
 
-    # Doctor must not FAIL. system_users_resolve will WARN because the
-    # seeded 'agent' UID isn't a real OS user — acceptable; we only
-    # assert no FAIL.
+    # The seeded system parent points at a UID that has no matching
+    # /etc/passwd entry, so system_users_resolve is expected to FAIL
+    # (this is a test harness artefact, not a real problem). Every
+    # other check must pass — in particular subuser_parents_valid,
+    # which is the meaningful invariant for this PR.
     rc = _run(env, "--json", "doctor")
     assert rc.returncode == 0
     doctor_payload = json.loads(rc.stdout.splitlines()[-1])
-    failing = [c for c in doctor_payload["checks"] if c["status"] == "FAIL"]
-    # The seeded system parent won't resolve via pwd.getpwnam, so
-    # system_users_resolve is expected to FAIL. subuser_parents_valid
-    # must still pass — that's the meaningful assertion for this PR.
     parent_check = next(c for c in doctor_payload["checks"] if c["name"] == "subuser_parents_valid")
     assert parent_check["status"] == "PASS", doctor_payload
-    # The only acceptable FAIL is the synthetic parent resolution.
-    for c in failing:
-        assert c["name"] == "system_users_resolve", doctor_payload
+    for c in doctor_payload["checks"]:
+        if c["status"] == "FAIL":
+            assert c["name"] == "system_users_resolve", doctor_payload
 
     # Delete just the sub-user first (no cascade expected).
     rc = _run(env, "--json", "user", "delete", "alice")

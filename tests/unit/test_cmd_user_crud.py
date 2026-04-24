@@ -11,30 +11,7 @@ from zehut.cli import _errors
 
 
 @pytest.fixture
-def tmp_zehut_with_alice(tmp_path, monkeypatch):
-    config_dir = tmp_path / "etc-zehut"
-    state_dir = tmp_path / "var-lib-zehut"
-    monkeypatch.setenv("ZEHUT_CONFIG_DIR", str(config_dir))
-    monkeypatch.setenv("ZEHUT_STATE_DIR", str(state_dir))
-    config_dir.mkdir()
-    state_dir.mkdir()
-    monkeypatch.setattr("zehut.privilege.os.geteuid", lambda: 0)
-
-    from zehut.backend import system as system_mod
-    from zehut.backend.base import ProvisionResult
-
-    monkeypatch.setattr(
-        system_mod.SystemBackend,
-        "provision",
-        lambda self, *, name: ProvisionResult(system_user=name, system_uid=2000),
-    )
-    monkeypatch.setattr(
-        system_mod.SystemBackend,
-        "deprovision",
-        lambda self, *, name, system_user, keep_home: None,
-    )
-    monkeypatch.setattr(system_mod.SystemBackend, "exists", lambda self, name: False)
-
+def tmp_zehut_with_alice(tmp_zehut_root, stub_system_backend):
     cli.main(["init", "--domain", "agents.example.com", "--default-backend", "system"])
     # Parent (system) + sub-user alice.
     cli.main(["user", "create", "agent", "--system"])
@@ -52,7 +29,7 @@ def tmp_zehut_with_alice(tmp_path, monkeypatch):
             "qa",
         ]
     )
-    return config_dir, state_dir
+    return tmp_zehut_root
 
 
 def test_list_json(tmp_zehut_with_alice, capsys):
@@ -140,31 +117,9 @@ def test_delete_parent_cascades_to_subusers(tmp_zehut_with_alice, capsys):
     assert users.list_all() == []
 
 
-def test_delete_system_needs_root(tmp_path, monkeypatch, capsys):
-    config_dir = tmp_path / "etc-zehut"
-    state_dir = tmp_path / "var-lib-zehut"
-    monkeypatch.setenv("ZEHUT_CONFIG_DIR", str(config_dir))
-    monkeypatch.setenv("ZEHUT_STATE_DIR", str(state_dir))
-    config_dir.mkdir()
-    state_dir.mkdir()
-    monkeypatch.setattr("zehut.privilege.os.geteuid", lambda: 0)
+def test_delete_system_needs_root(tmp_zehut_root, stub_system_backend, monkeypatch, capsys):
     cli.main(["init", "--domain", "agents.example.com", "--default-backend", "system"])
-
-    from zehut.backend import system as system_mod
-    from zehut.backend.base import ProvisionResult
-
-    monkeypatch.setattr(
-        system_mod.SystemBackend,
-        "provision",
-        lambda self, *, name: ProvisionResult(system_user=name, system_uid=3001),
-    )
-    monkeypatch.setattr(
-        system_mod.SystemBackend,
-        "deprovision",
-        lambda self, *, name, system_user, keep_home: None,
-    )
     cli.main(["user", "create", "bob", "--system"])
-
     # Drop root for the delete.
     monkeypatch.setattr("zehut.privilege.os.geteuid", lambda: 1000)
     rc = cli.main(["user", "delete", "bob"])

@@ -1,6 +1,6 @@
 [project]
 name = "zehut"
-version = "0.2.0"
+version = "1.0.0"
 description = "Agents-first identity layer — local system users and owned sub-users, with email assignment."
 readme = "README.md"
 license = "MIT"

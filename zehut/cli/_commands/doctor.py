@@ -24,6 +24,10 @@ _DOMAIN_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 # Single-char status markers. Hoisted to module scope so the inline marker
 # lookup doesn't trip bandit's hardcoded-string heuristic (B105/S105).
 _STATUS_MARKERS = {"PASS": "+", "WARN": "!", "FAIL": "x"}  # noqa: S105 # nosec B105
+# Shared detail message for checks that short-circuit when the users
+# registry can't be read — factored out so Sonar python:S1192 doesn't
+# flag the repeated literal.
+_REGISTRY_UNREADABLE_DETAIL = "registry unreadable; skipped"
 
 
 @dataclass
@@ -138,7 +142,7 @@ def _check_subuser_name_vs_os() -> Check:
     try:
         recs = users.list_all()
     except Exception:
-        return Check("subuser_names_free", "PASS", "registry unreadable; skipped", "")
+        return Check("subuser_names_free", "PASS", _REGISTRY_UNREADABLE_DETAIL, "")
     collisions: list[str] = []
     for rec in recs:
         if rec.backend != "subuser":
@@ -167,7 +171,7 @@ def _check_subuser_parents_valid() -> Check:
     try:
         recs = users.list_all()
     except Exception:
-        return Check("subuser_parents_valid", "PASS", "registry unreadable; skipped", "")
+        return Check("subuser_parents_valid", "PASS", _REGISTRY_UNREADABLE_DETAIL, "")
     by_id = {r.id: r for r in recs}
     problems: list[str] = []
     for rec in recs:
@@ -204,7 +208,7 @@ def _check_ambient_resolution() -> Check:
     try:
         recs = users.list_all()
     except Exception:
-        return Check("ambient_resolution", "PASS", "registry unreadable; skipped", "")
+        return Check("ambient_resolution", "PASS", _REGISTRY_UNREADABLE_DETAIL, "")
     for rec in recs:
         if rec.backend == "system" and rec.system_user == os_name:
             return Check(

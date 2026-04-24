@@ -11,29 +11,11 @@ from zehut.cli import _errors
 
 
 @pytest.fixture
-def tmp_zehut(tmp_path, monkeypatch):
-    config_dir = tmp_path / "etc-zehut"
-    state_dir = tmp_path / "var-lib-zehut"
-    monkeypatch.setenv("ZEHUT_CONFIG_DIR", str(config_dir))
-    monkeypatch.setenv("ZEHUT_STATE_DIR", str(state_dir))
-    config_dir.mkdir()
-    state_dir.mkdir()
-    monkeypatch.setattr("zehut.privilege.os.geteuid", lambda: 0)
-
-    from zehut.backend import system as system_mod
-    from zehut.backend.base import ProvisionResult
-
-    monkeypatch.setattr(
-        system_mod.SystemBackend,
-        "provision",
-        lambda self, *, name: ProvisionResult(system_user=name, system_uid=2000),
-    )
-    monkeypatch.setattr(system_mod.SystemBackend, "exists", lambda self, name: False)
-
+def tmp_zehut(tmp_zehut_root, stub_system_backend):
     cli.main(["init", "--domain", "agents.example.com", "--default-backend", "subuser"])
     cli.main(["user", "create", "agent", "--system"])
     cli.main(["user", "create", "alice", "--subuser", "--parent", "agent", "--nick", "Ali"])
-    return config_dir, state_dir
+    return tmp_zehut_root
 
 
 def test_learn_emits_markdown_with_frontmatter(tmp_zehut, capsys):
