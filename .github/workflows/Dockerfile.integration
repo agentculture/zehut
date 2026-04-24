@@ -1,11 +1,10 @@
 # Disposable image for running tests that require real useradd/userdel.
 FROM python:3.12-slim
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-        sudo passwd \
-    && rm -rf /var/lib/apt/lists/*
-
-RUN pip install --no-cache-dir uv
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends sudo passwd \
+    && rm -rf /var/lib/apt/lists/* \
+    && pip install --no-cache-dir uv
 
 WORKDIR /src
 # README.md must be present for hatchling to validate the project metadata
