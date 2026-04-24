@@ -8,7 +8,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN pip install --no-cache-dir uv
 
 WORKDIR /src
-COPY pyproject.toml uv.lock ./
+# README.md must be present for hatchling to validate the project metadata
+# during `uv sync` (pyproject.toml declares `readme = "README.md"`).
+COPY pyproject.toml uv.lock README.md ./
 COPY zehut ./zehut
 COPY tests ./tests
 COPY .flake8 ./

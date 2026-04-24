@@ -21,6 +21,9 @@ from zehut import fs, users
 from zehut.cli._output import emit_result
 
 _DOMAIN_RE = re.compile(r"^[A-Za-z0-9._-]+$")
+# Single-char status markers. Hoisted to module scope so the inline marker
+# lookup doesn't trip bandit's hardcoded-string heuristic (B105/S105).
+_STATUS_MARKERS = {"PASS": "+", "WARN": "!", "FAIL": "x"}  # noqa: S105 # nosec B105
 
 
 @dataclass
@@ -229,7 +232,7 @@ def run(args: argparse.Namespace) -> int:
 
     lines = []
     for r in results:
-        marker = {"PASS": "+", "WARN": "!", "FAIL": "x"}.get(r.status, "?")  # noqa: S105
+        marker = _STATUS_MARKERS.get(r.status, "?")
         line = f"{marker} [{r.status}] {r.name}: {r.detail}"
         lines.append(line)
         if r.remediation:

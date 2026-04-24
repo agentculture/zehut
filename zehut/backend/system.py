@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import pwd
 import re
-import subprocess
+import subprocess  # nosec B404
 
 from zehut.backend.base import Backend, ProvisionResult
 from zehut.cli._errors import EXIT_BACKEND, EXIT_USER_ERROR, ZehutError
@@ -30,7 +30,9 @@ def _validate_name(name: str) -> None:
 
 
 def _run(cmd: list[str], *, what: str) -> None:
-    result = subprocess.run(
+    # Trusted callsite: cmd[0] is a hard-coded binary name (useradd/userdel)
+    # and cmd[1:] values are pre-validated against _NAME_RE. PATH is pinned.
+    result = subprocess.run(  # nosec B603
         cmd,
         check=False,
         env={"PATH": _SAFE_PATH, "LC_ALL": "C"},

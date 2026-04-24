@@ -53,9 +53,17 @@ jobs:
           set -euo pipefail
           head_version=$(grep -E '^version = ' pyproject.toml | head -1 | awk -F'"' '{print $2}')
           git fetch origin main --depth=1
-          base_version=$(git show origin/main:pyproject.toml | grep -E '^version = ' | head -1 | awk -F'"' '{print $2}')
+          # `git show origin/main:pyproject.toml` fails when main does not yet
+          # have pyproject.toml (first PR to introduce it). Treat that case as
+          # initial release — a bump isn't required.
+          if base_pyproject=$(git show origin/main:pyproject.toml 2>/dev/null); then
+            base_version=$(echo "$base_pyproject" | grep -E '^version = ' | head -1 | awk -F'"' '{print $2}')
+          else
+            base_version=""
+            echo "note: origin/main has no pyproject.toml; treating as initial release."
+          fi
           echo "base=$base_version head=$head_version"
-          if [ "$base_version" = "$head_version" ]; then
+          if [ -n "$base_version" ] && [ "$base_version" = "$head_version" ]; then
             echo "ERROR: version unchanged. Run the version-bump skill." >&2
             exit 1
           fi

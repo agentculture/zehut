@@ -270,7 +270,7 @@ def _cmd_switch(args: argparse.Namespace) -> int:
     sudo_path = shutil.which("sudo") or "/usr/bin/sudo"
     # sudo itself is trusted; we resolve the absolute path up front so a
     # hostile PATH cannot redirect the exec to a shadow binary.
-    os.execv(sudo_path, [sudo_path, "-u", target, "-i"])  # noqa: S606
+    os.execv(sudo_path, [sudo_path, "-u", target, "-i"])  # noqa: S606 # nosec B606
     # If execv returns, something broke.
     raise ZehutError(  # pragma: no cover — execv only returns on failure
         code=EXIT_STATE,
