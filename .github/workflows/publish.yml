@@ -41,6 +41,12 @@ jobs:
       - uses: pypa/gh-action-pypi-publish@release/v1
         with:
           repository-url: https://test.pypi.org/legacy/
+          # Make PR re-runs idempotent: once a version is uploaded to
+          # TestPyPI, subsequent attempts on the same version number
+          # would otherwise fail with 400. skip-existing turns that into
+          # a no-op. A real version bump is still enforced by tests.yml's
+          # version-check job for every PR.
+          skip-existing: true
 
   pypi:
     needs: build
