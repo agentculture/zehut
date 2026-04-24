@@ -26,13 +26,30 @@ from zehut.cli._errors import (
 from zehut.cli._output import emit_error
 
 
+class _ParserExit(Exception):
+    """Internal signal that argparse wants the program to exit.
+
+    Raised from :meth:`_ZehutArgumentParser.exit` and ``.error`` instead of
+    ``SystemExit``. :func:`main` catches this and converts to an integer
+    return code. Keeping SystemExit out of zehut code means Sonar's S5754
+    ("reraise SystemExit") never has reason to flag us — the rule only
+    fires on SystemExit catches that don't reraise.
+    """
+
+    def __init__(self, code: int) -> None:
+        super().__init__(f"_ParserExit({code})")
+        self.code = code
+
+
 class _ZehutArgumentParser(argparse.ArgumentParser):
     """ArgumentParser that routes errors through :func:`emit_error`.
 
     Argparse's default ``error()`` writes ``prog: error: <msg>`` and exits.
     That skips our ZehutError plumbing (no hint, wrong exit code). This
-    subclass emits the structured format and exits with
-    ``EXIT_USER_ERROR``.
+    subclass emits the structured format and raises :class:`_ParserExit`
+    instead of ``SystemExit``. The overridden ``exit()`` intercepts the
+    same calls argparse makes from ``_VersionAction`` and ``_HelpAction``
+    so those paths also surface as ``_ParserExit``.
 
     JSON mode: parse-time errors happen before ``args.json`` exists, so we
     rely on ``_json_hint`` that :func:`main` pre-populates by peeking at
@@ -48,7 +65,15 @@ class _ZehutArgumentParser(argparse.ArgumentParser):
             remediation=f"run '{self.prog} --help' to see valid arguments",
         )
         emit_error(err, json_mode=type(self)._json_hint)
-        raise SystemExit(err.code)
+        raise _ParserExit(err.code)
+
+    def exit(self, status: int = 0, message: str | None = None) -> None:  # type: ignore[override]
+        # argparse invokes this from _VersionAction, _HelpAction, and from
+        # its own error path (.error() → parser.exit()). Raising
+        # _ParserExit keeps SystemExit out of our codebase.
+        if message:
+            self._print_message(message, sys.stderr)
+        raise _ParserExit(int(status))
 
 
 def _argv_has_json(argv: list[str] | None) -> bool:
@@ -117,8 +142,6 @@ def _dispatch(args: argparse.Namespace) -> int:
     except ZehutError as err:
         emit_error(err, json_mode=json_mode)
         return err.code
-    except SystemExit:  # pragma: no cover — let argparse exits propagate
-        raise
     except Exception as err:  # noqa: BLE001 — last-resort wrap
         wrapped = ZehutError(
             code=EXIT_INTERNAL,
@@ -135,18 +158,15 @@ def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     try:
         args = parser.parse_args(argv)
-    except SystemExit as exc:
-        # argparse raises SystemExit for --version, --help, and parse errors
-        # (our _ZehutArgumentParser.error() also raises SystemExit).
-        # Convert to an integer return code so callers get a clean int back.
-        return int(exc.code) if exc.code is not None else 0
+    except _ParserExit as exc:
+        # argparse's --version, --help, and parse-error paths now raise
+        # _ParserExit (see _ZehutArgumentParser). Convert to int so callers
+        # receive a clean return code.
+        return exc.code
     if getattr(args, "command", None) is None:
         parser.print_help()
         return 0
-    try:
-        return _dispatch(args)
-    except SystemExit as exc:
-        return int(exc.code) if exc.code is not None else 0
+    return _dispatch(args)
 
 
 if __name__ == "__main__":

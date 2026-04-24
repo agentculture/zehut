@@ -71,9 +71,12 @@ def test_switch_system_execs_sudo(tmp_zehut, monkeypatch, capsys):
     )
     monkeypatch.setattr("os.execv", fake_execv)
 
-    rc = cli.main(["user", "switch", "bob"])
-    # The test harness's main() catches SystemExit and returns the code as int.
-    assert rc == 0
+    # main() no longer catches SystemExit (removed to clear Sonar S5754);
+    # os.execv in production replaces the process and never returns, so the
+    # test's SystemExit-raising mock accurately represents that contract.
+    with pytest.raises(SystemExit) as excinfo:
+        cli.main(["user", "switch", "bob"])
+    assert excinfo.value.code == 0
     assert recorded == [["/usr/bin/sudo", "-u", "bob", "-i"]]
 
 
