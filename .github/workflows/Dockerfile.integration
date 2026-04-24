@@ -1,5 +1,19 @@
 # Disposable image for running tests that require real useradd/userdel.
+#
+# Root is INTENTIONAL. This image exists solely to run the integration
+# tests in tests/integration/, which exercise `useradd` and `userdel` and
+# therefore need root. The container is built per-CI-run, runs no user
+# code outside the pytest invocation, and is discarded after. See
+# docs/threat-model.md §risk-surfaces and issue #11 for the long-form
+# discussion + the rootless-refactor alternative.
+#
+# (SonarCloud hotspot docker:S6471 is marked REVIEWED/SAFE for this
+# image in the SonarCloud UI; see PR #2 comment history.)
 FROM python:3.12-slim
+
+# Make root explicit so intent is obvious in the Dockerfile, not only
+# inherited from the base image.
+USER root
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends sudo passwd \
