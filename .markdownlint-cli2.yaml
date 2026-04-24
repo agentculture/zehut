@@ -1,0 +1,13 @@
+config:
+  default: true
+  MD013: false  # line-length
+  MD060: false  # no-hr-after-heading (lint-cli2 plugin unused here)
+  MD033:        # allow inline HTML (for the occasional <br>)
+    allowed_elements: [br, details, summary]
+
+globs:
+  - "**/*.md"
+ignores:
+  - "**/node_modules/**"
+  - "dist/**"
+  - "build/**"
