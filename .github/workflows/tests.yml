@@ -1,0 +1,57 @@
+name: tests
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+      - run: uv sync
+      - run: uv run black --check zehut tests
+      - run: uv run isort --check-only zehut tests
+      - run: uv run flake8 --config=.flake8 zehut tests
+      - run: uv run bandit -r zehut -c pyproject.toml
+
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+      - run: uv sync
+      - run: uv run pytest -n auto --cov=zehut --cov-report=term -m "not integration"
+
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build integration image
+        run: docker build -t zehut-int -f .github/workflows/Dockerfile.integration .
+      - name: Run integration tests inside container
+        run: docker run --rm -e ZEHUT_DOCKER=1 zehut-int uv run pytest tests/integration -v -m integration
+
+  version-check:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Compare versions
+        run: |
+          set -euo pipefail
+          head_version=$(grep -E '^version = ' pyproject.toml | head -1 | awk -F'"' '{print $2}')
+          git fetch origin main --depth=1
+          base_version=$(git show origin/main:pyproject.toml | grep -E '^version = ' | head -1 | awk -F'"' '{print $2}')
+          echo "base=$base_version head=$head_version"
+          if [ "$base_version" = "$head_version" ]; then
+            echo "ERROR: version unchanged. Run the version-bump skill." >&2
+            exit 1
+          fi
