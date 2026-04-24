@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-**zehut** — "Agents first secrets manager." A secrets manager whose primary clients are AI agents rather than humans. Repo: https://github.com/OriNachum/zehut
+**zehut** — "Agents first secrets manager." A secrets manager whose primary clients are AI agents rather than humans. Repo: <https://github.com/OriNachum/zehut>.
 
 ## Stack
 
