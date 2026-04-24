@@ -93,6 +93,14 @@ def _build_parser() -> argparse.ArgumentParser:
 
     _doctor_cmd.register(sub)
 
+    from zehut.cli._commands import explain as _explain_cmd  # noqa: WPS433
+    from zehut.cli._commands import learn as _learn_cmd  # noqa: WPS433
+    from zehut.cli._commands import overview as _overview_cmd  # noqa: WPS433
+
+    _learn_cmd.register(sub)
+    _overview_cmd.register(sub)
+    _explain_cmd.register(sub)
+
     # More noun groups and globals register here in later tasks.
     return parser
 
