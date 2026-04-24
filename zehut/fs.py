@@ -9,6 +9,12 @@ context managers over ``/var/lib/zehut/.lock``. Advisory only — nothing
 outside zehut participates — but enough to serialise zehut's own writers
 against readers on a single host.
 
+Caution: ``exclusive_lock`` and ``shared_lock`` are NOT re-entrant on the same
+thread. Each call opens a fresh fd, and the kernel treats separate open file
+descriptions as independent lock holders — acquiring the same lock path twice
+without releasing between calls will deadlock. Never nest calls on one lock
+path; acquire at the operation boundary.
+
 Atomic writes: write to a temp sibling, fsync, then ``os.replace``. On
 POSIX this is atomic w.r.t. crashes; readers see either the old file or
 the new one, never a half-written blob.
@@ -57,14 +63,24 @@ def atomic_write_text(target: Path, data: str, *, mode: int) -> None:
         suffix=".tmp",
         dir=str(target.parent),
     )
+    # os.fdopen takes ownership of fd on success. If it raises before that,
+    # we must close fd ourselves — otherwise the raw fd leaks.
+    fd_owned = False
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        fh = os.fdopen(fd, "w", encoding="utf-8")
+        fd_owned = True
+        with fh:
             fh.write(data)
             fh.flush()
             os.fsync(fh.fileno())
         os.chmod(tmp_path, mode)
         os.replace(tmp_path, target)
     except BaseException:
+        if not fd_owned:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
         try:
             os.unlink(tmp_path)
         except FileNotFoundError:

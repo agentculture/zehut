@@ -17,7 +17,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"zehut {__version__}")
         return 0
     # Placeholder: anything else prints a stub message.
-    # NOTE: Task 6 replaces this with argparse dispatch; unknown verbs will return EXIT_USER_ERROR (64).
+    # NOTE: Task 6 replaces this with argparse dispatch; unknown verbs
+    # will then return EXIT_USER_ERROR (64).
     print("zehut CLI not yet implemented — see docs/superpowers/plans/", file=sys.stderr)
     return 0
 

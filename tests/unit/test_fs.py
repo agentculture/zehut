@@ -38,6 +38,7 @@ def test_paths_honour_env_overrides(tmp_zehut):
     assert fs.state_dir() == state_dir
     assert fs.config_file() == config_dir / "config.toml"
     assert fs.users_file() == state_dir / "users.json"
+    assert fs.lock_file() == state_dir / ".lock"
 
 
 def test_atomic_write_text_creates_file_with_content(tmp_zehut):
@@ -64,32 +65,50 @@ def test_atomic_write_text_leaves_no_tmp_on_success(tmp_zehut):
     assert tmps == []
 
 
+def test_atomic_write_text_cleans_up_tmp_on_failure(tmp_zehut, monkeypatch):
+    _, state_dir = tmp_zehut
+    target = state_dir / "x.txt"
+
+    def _boom(src, dst):
+        raise OSError("simulated replace failure")
+
+    monkeypatch.setattr(fs.os, "replace", _boom)
+    with pytest.raises(OSError, match="simulated replace failure"):
+        fs.atomic_write_text(target, "payload", mode=0o644)
+
+    # Neither the target nor any .x.txt.*.tmp sibling should remain.
+    assert not target.exists()
+    tmps = [p for p in state_dir.iterdir() if p.name.startswith(".x.txt.")]
+    assert tmps == []
+
+
 def test_exclusive_lock_blocks_concurrent_writer(tmp_zehut):
+    import time
+
     _, state_dir = tmp_zehut
     lock_path = state_dir / ".lock"
     lock_path.touch()
     observed: list[str] = []
+    first_locked = threading.Event()
 
-    def worker(tag: str, hold_for: float):
-        import time
-
+    def worker(tag: str, hold_for: float, signal_when_locked: bool):
         with fs.exclusive_lock(lock_path):
+            if signal_when_locked:
+                first_locked.set()
             observed.append(f"{tag}-enter")
             time.sleep(hold_for)
             observed.append(f"{tag}-leave")
 
-    t1 = threading.Thread(target=worker, args=("a", 0.2))
-    t2 = threading.Thread(target=worker, args=("b", 0.0))
+    t1 = threading.Thread(target=worker, args=("a", 0.2, True))
     t1.start()
-    # give t1 time to acquire the lock before t2 races
-    import time as _time
-
-    _time.sleep(0.05)
+    # Wait until t1 has actually acquired the lock before starting t2, so
+    # the assertion doesn't depend on wall-clock scheduling.
+    assert first_locked.wait(timeout=2.0), "t1 failed to acquire lock within timeout"
+    t2 = threading.Thread(target=worker, args=("b", 0.0, False))
     t2.start()
     t1.join()
     t2.join()
 
-    # a must fully enter and leave before b enters
     assert observed == ["a-enter", "a-leave", "b-enter", "b-leave"]
 
 
