@@ -4,3 +4,4 @@ extend-ignore = E203, W503
 exclude = .git,__pycache__,build,dist,.venv
 per-file-ignores =
     tests/*:S101
+    tests/test_smoke.py:S101,S404,S603
