@@ -85,6 +85,10 @@ def _build_parser() -> argparse.ArgumentParser:
 
     _configuration_cmd.register(sub)
 
+    from zehut.cli._commands import user as _user_cmd  # noqa: WPS433
+
+    _user_cmd.register(sub)
+
     # More noun groups and globals register here in later tasks.
     return parser
 
